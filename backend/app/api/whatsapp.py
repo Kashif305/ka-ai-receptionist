@@ -5,11 +5,10 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.customer import Customer
 from app.models.message import Message
+from app.services.whatsapp_service import send_whatsapp_text
 
-router = APIRouter(
-    prefix="/webhooks/whatsapp",
-    tags=["whatsapp"],
-)
+
+router = APIRouter(prefix="/webhooks/whatsapp", tags=["whatsapp"])
 
 
 @router.get("")
@@ -18,13 +17,10 @@ def verify_whatsapp_webhook(
     hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
     hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
 ):
-    if (
-        hub_mode == "subscribe"
-        and hub_verify_token == settings.whatsapp_verify_token
-    ):
+    if hub_mode == "subscribe" and hub_verify_token == settings.whatsapp_verify_token:
         return hub_challenge
 
-    raise HTTPException(status_code=403)
+    raise HTTPException(status_code=403, detail="Invalid WhatsApp verify token")
 
 
 @router.post("")
@@ -39,17 +35,20 @@ async def receive_whatsapp_webhook(
         change = entry["changes"][0]
         value = change["value"]
 
+        if "messages" not in value:
+            return {"status": "ignored"}
+
         contact = value["contacts"][0]
         message = value["messages"][0]
 
+        if message.get("type") != "text":
+            return {"status": "ignored_non_text"}
+
         phone = contact["wa_id"]
         customer_name = contact["profile"]["name"]
+        message_body = message["text"]["body"]
 
-        customer = (
-            db.query(Customer)
-            .filter(Customer.phone == phone)
-            .first()
-        )
+        customer = db.query(Customer).filter(Customer.phone == phone).first()
 
         if not customer:
             customer = Customer(
@@ -58,7 +57,6 @@ async def receive_whatsapp_webhook(
                 whatsapp_id=phone,
                 notes="Auto-created from WhatsApp",
             )
-
             db.add(customer)
             db.commit()
             db.refresh(customer)
@@ -68,15 +66,28 @@ async def receive_whatsapp_webhook(
             channel="whatsapp",
             direction="inbound",
             external_message_id=message["id"],
-            body=message["text"]["body"],
+            body=message_body,
         )
 
         db.add(new_message)
         db.commit()
 
-        print(
-            f"WHATSAPP SAVED | customer={customer.name} | message={message['text']['body']}"
-        )
+        print(f"WHATSAPP SAVED | customer={customer.name} | message={message_body}")
+
+        auto_reply = """Hello 👋
+
+Thank you for contacting KA AI Receptionist.
+
+Please choose:
+
+1️⃣ Book Appointment
+2️⃣ Reschedule Appointment
+3️⃣ Cancel Appointment
+4️⃣ Services & Pricing
+5️⃣ Speak With Staff
+"""
+
+        send_whatsapp_text(phone, auto_reply)
 
     except Exception as exc:
         print("WEBHOOK PARSE ERROR:", exc)
