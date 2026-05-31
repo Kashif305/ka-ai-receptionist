@@ -127,8 +127,11 @@ def create_real_appointment(
     customer: Customer,
     service: Service,
     start_at: datetime,
-) -> Appointment:
+) -> Appointment | None:
     end_at = start_at + timedelta(minutes=service.duration_minutes)
+
+    if is_slot_booked(db, start_at):
+        return None
 
     appointment = Appointment(
         customer_id=customer.id,
@@ -146,6 +149,37 @@ def create_real_appointment(
 
     return appointment
 
+
+
+
+def is_slot_booked(db: Session, start_at: datetime) -> bool:
+    return (
+        db.query(Appointment)
+        .filter(Appointment.status == "confirmed")
+        .filter(Appointment.start_at == start_at)
+        .first()
+        is not None
+    )
+
+
+def get_available_time_choices(db: Session, selected_date, service: Service) -> str:
+    lines = []
+
+    for key, slot_time in TIME_MAP.items():
+        start_at = datetime.combine(
+            selected_date,
+            slot_time,
+            tzinfo=BUSINESS_TZ,
+        )
+
+        if not is_slot_booked(db, start_at):
+            label = start_at.strftime("%I:%M %p").lstrip("0")
+            lines.append(f"{key}️⃣ {label}")
+
+    if not lines:
+        return "No times are available for that day. Please choose another date."
+
+    return "Available times:\n\n" + "\n".join(lines)
 
 def handle_customer_message(db: Session, customer: Customer, message_body: str) -> str:
     text = message_body.strip().lower()
@@ -170,7 +204,29 @@ def handle_customer_message(db: Session, customer: Customer, message_body: str) 
             return "Reschedule flow is coming next. For now, please send your current appointment time."
 
         if text == "3":
-            return "Cancel flow is coming next. For now, please send your appointment time to cancel."
+            appointment = (
+                db.query(Appointment)
+                .filter(Appointment.customer_id == customer.id)
+                .filter(Appointment.status == "confirmed")
+                .order_by(Appointment.start_at.asc())
+                .first()
+            )
+
+            if not appointment:
+                return "I could not find an active appointment to cancel."
+
+            appointment.status = "cancelled"
+            db.commit()
+
+            state.current_state = "main_menu"
+            state.current_step = "completed"
+            state.context_json = "{}"
+            db.commit()
+
+            return f"""Your appointment has been cancelled ✅
+
+Cancelled appointment:
+{appointment.start_at.strftime('%A, %B %d at %I:%M %p')}"""
 
         if text == "4":
             return "Our demo services include Eyebrow Threading, Facial, and Haircut."
@@ -256,6 +312,10 @@ def handle_customer_message(db: Session, customer: Customer, message_body: str) 
                 service=service,
                 start_at=start_at,
             )
+
+            if appointment is None:
+                available = get_available_time_choices(db, appointment_day, service)
+                return f"Sorry, that time is already booked.\n\n{available}"
 
             state.current_state = "main_menu"
             state.current_step = "completed"
