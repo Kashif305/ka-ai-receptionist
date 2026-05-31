@@ -69,6 +69,15 @@ TIME_MAP = {
 }
 
 
+
+def format_business_datetime(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+
+    local_dt = dt.astimezone(BUSINESS_TZ)
+    return local_dt.strftime("%A, %B %d at %I:%M %p")
+
+
 def get_or_create_state(db: Session, customer: Customer) -> ConversationState:
     state = db.query(ConversationState).filter(
         ConversationState.customer_id == customer.id
@@ -181,6 +190,50 @@ def get_available_time_choices(db: Session, selected_date, service: Service) -> 
 
     return "Available times:\n\n" + "\n".join(lines)
 
+
+def get_next_confirmed_appointment(db: Session, customer: Customer) -> Appointment | None:
+    now = datetime.now(BUSINESS_TZ)
+
+    return (
+        db.query(Appointment)
+        .filter(Appointment.customer_id == customer.id)
+        .filter(Appointment.status == "confirmed")
+        .filter(Appointment.start_at >= now)
+        .order_by(Appointment.start_at.asc())
+        .first()
+    )
+
+
+def reschedule_appointment(
+    db: Session,
+    appointment: Appointment,
+    new_start_at: datetime,
+) -> bool:
+    service = db.get(Service, appointment.service_id)
+    if not service:
+        return False
+
+    new_end_at = new_start_at + timedelta(minutes=service.duration_minutes)
+
+    conflict = (
+        db.query(Appointment)
+        .filter(Appointment.id != appointment.id)
+        .filter(Appointment.status == "confirmed")
+        .filter(Appointment.start_at == new_start_at)
+        .first()
+    )
+
+    if conflict:
+        return False
+
+    appointment.start_at = new_start_at
+    appointment.end_at = new_end_at
+    appointment.notes = "Rescheduled from WhatsApp flow"
+    db.commit()
+    db.refresh(appointment)
+    return True
+
+
 def handle_customer_message(db: Session, customer: Customer, message_body: str) -> str:
     text = message_body.strip().lower()
     state = get_or_create_state(db, customer)
@@ -201,7 +254,28 @@ def handle_customer_message(db: Session, customer: Customer, message_body: str) 
             return SERVICE_MENU
 
         if text == "2":
-            return "Reschedule flow is coming next. For now, please send your current appointment time."
+            appointment = get_next_confirmed_appointment(db, customer)
+
+            if not appointment:
+                return "I could not find an active upcoming appointment to reschedule."
+
+            context = {
+                "appointment_id": appointment.id,
+                "service_id": appointment.service_id,
+            }
+
+            state.current_state = "reschedule"
+            state.current_step = "select_reschedule_time"
+            save_context(db, state, context)
+            return f"""I found your upcoming appointment:
+
+{format_business_datetime(appointment.start_at)}
+
+Please choose a new time for tomorrow:
+
+1️⃣ 2:00 PM
+2️⃣ 3:00 PM
+3️⃣ 4:00 PM"""
 
         if text == "3":
             appointment = (
@@ -226,7 +300,7 @@ def handle_customer_message(db: Session, customer: Customer, message_body: str) 
             return f"""Your appointment has been cancelled ✅
 
 Cancelled appointment:
-{appointment.start_at.strftime('%A, %B %d at %I:%M %p')}"""
+{format_business_datetime(appointment.start_at)}"""
 
         if text == "4":
             return "Our demo services include Eyebrow Threading, Facial, and Haircut."
@@ -238,6 +312,55 @@ Cancelled appointment:
             return STAFF_REPLY
 
         return MAIN_MENU
+
+
+    if state.current_state == "reschedule" and state.current_step == "select_reschedule_time":
+        if text in TIME_MAP:
+            context = get_context(state)
+            appointment_id = context.get("appointment_id")
+
+            if not appointment_id:
+                state.current_state = "main_menu"
+                state.current_step = "awaiting_menu_choice"
+                state.context_json = "{}"
+                db.commit()
+                return "Something reset. Please reply 2 to start rescheduling again."
+
+            appointment = db.get(Appointment, appointment_id)
+            if not appointment or appointment.status != "confirmed":
+                return "I could not find that active appointment anymore."
+
+            selected_time = TIME_MAP[text]
+            tomorrow = datetime.now(BUSINESS_TZ).date() + timedelta(days=1)
+
+            new_start_at = datetime.combine(
+                tomorrow,
+                selected_time,
+                tzinfo=BUSINESS_TZ,
+            )
+
+            ok = reschedule_appointment(db, appointment, new_start_at)
+
+            if not ok:
+                available = get_available_time_choices(
+                    db,
+                    tomorrow,
+                    db.get(Service, appointment.service_id),
+                )
+                return f"Sorry, that time is already booked.\n\n{available}"
+
+            state.current_state = "main_menu"
+            state.current_step = "completed"
+            state.context_json = "{}"
+            db.commit()
+
+            return f"""Your appointment has been rescheduled ✅
+
+New appointment:
+{format_business_datetime(appointment.start_at)}"""
+
+        return "Please choose 1, 2, or 3 for the new appointment time."
+
 
     if state.current_state == "booking" and state.current_step == "select_service":
         if text in SERVICE_MAP:
@@ -325,8 +448,8 @@ Cancelled appointment:
             return f"""You're booked ✅
 
 Service: {service.name}
-Date: {appointment.start_at.strftime('%A, %B %d, %Y')}
-Time: {appointment.start_at.strftime('%I:%M %p')}
+Date: {appointment.start_at.astimezone(BUSINESS_TZ).strftime('%A, %B %d, %Y')}
+Time: {appointment.start_at.astimezone(BUSINESS_TZ).strftime('%I:%M %p')}
 
 Thank you for using KA AI Receptionist."""
 
