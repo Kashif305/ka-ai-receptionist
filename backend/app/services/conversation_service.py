@@ -24,6 +24,7 @@ Please choose:
 3️⃣ Cancel Appointment
 4️⃣ Services & Pricing
 5️⃣ Speak With Staff
+6️⃣ My Appointment
 """
 
 SERVICE_MENU = """Great — let's book your appointment.
@@ -234,6 +235,23 @@ def reschedule_appointment(
     return True
 
 
+
+def get_upcoming_appointment_reply(db: Session, customer: Customer) -> str:
+    appointment = get_next_confirmed_appointment(db, customer)
+
+    if not appointment:
+        return "I could not find any upcoming confirmed appointment for you."
+
+    service = db.get(Service, appointment.service_id)
+    service_name = service.name if service else "Appointment"
+
+    return f"""Your next appointment ✅
+
+Service: {service_name}
+Date/Time: {format_business_datetime(appointment.start_at)}
+Status: {appointment.status.title()}"""
+
+
 def handle_customer_message(db: Session, customer: Customer, message_body: str) -> str:
     text = message_body.strip().lower()
     state = get_or_create_state(db, customer)
@@ -310,6 +328,9 @@ Cancelled appointment:
             state.current_step = "waiting_for_staff"
             db.commit()
             return STAFF_REPLY
+
+        if text == "6":
+            return get_upcoming_appointment_reply(db, customer)
 
         return MAIN_MENU
 
