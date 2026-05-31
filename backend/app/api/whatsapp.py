@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.conversation_state import ConversationState
 from app.models.customer import Customer
 from app.models.message import Message
 from app.services.ai_intent_service import classify_intent
@@ -118,6 +119,21 @@ async def receive_whatsapp_webhook(
             print(
                 f"AI_INTENT | message={message_body} | intent={intent_result.intent} | command={intent_result.command} | confidence={intent_result.confidence}"
             )
+
+            # Natural-language AI commands should start from the main menu layer,
+            # not from a stale booking/reschedule step.
+            if message_body.strip().lower() not in {"1", "2", "3", "4", "5", "6"}:
+                state = (
+                    db.query(ConversationState)
+                    .filter(ConversationState.customer_id == customer.id)
+                    .first()
+                )
+                if state:
+                    state.current_state = "main_menu"
+                    state.current_step = "awaiting_menu_choice"
+                    state.context_json = "{}"
+                    db.commit()
+
             routed_message = intent_result.command
 
         auto_reply = handle_customer_message(db, customer, routed_message)
