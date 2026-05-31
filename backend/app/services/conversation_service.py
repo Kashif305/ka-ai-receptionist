@@ -63,6 +63,29 @@ SERVICE_MAP = {
     "3": {"name": "Haircut", "duration": 30, "price": 25.00},
 }
 
+
+BUSINESS_OPEN_HOUR = 12
+BUSINESS_CLOSE_HOUR = 21
+CLOSED_WEEKDAYS = {0}  # Monday = 0
+
+
+def is_business_open_at(start_at: datetime) -> bool:
+    local_dt = start_at.astimezone(BUSINESS_TZ)
+
+    if local_dt.weekday() in CLOSED_WEEKDAYS:
+        return False
+
+    return BUSINESS_OPEN_HOUR <= local_dt.hour < BUSINESS_CLOSE_HOUR
+
+
+def business_hours_message() -> str:
+    return """Sorry, we are closed at that time.
+
+Business hours:
+Tuesday–Sunday: 12:00 PM – 9:00 PM
+Monday: Closed"""
+
+
 TIME_MAP = {
     "1": time(14, 0),
     "2": time(15, 0),
@@ -360,6 +383,9 @@ Cancelled appointment:
                 tzinfo=BUSINESS_TZ,
             )
 
+            if not is_business_open_at(new_start_at):
+                return business_hours_message()
+
             ok = reschedule_appointment(db, appointment, new_start_at)
 
             if not ok:
@@ -449,6 +475,9 @@ New appointment:
                 selected_time,
                 tzinfo=BUSINESS_TZ,
             )
+
+            if not is_business_open_at(start_at):
+                return business_hours_message()
 
             appointment = create_real_appointment(
                 db=db,
