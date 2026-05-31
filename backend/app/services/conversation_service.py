@@ -177,7 +177,7 @@ def get_available_time_choices(db: Session, selected_date, service: Service) -> 
             lines.append(f"{key}️⃣ {label}")
 
     if not lines:
-        return "No times are available for that day. Please choose another date."
+        return "No appointment slots are available for that day.\n\nPlease choose another date or type menu to start over."
 
     return "Available times:\n\n" + "\n".join(lines)
 
