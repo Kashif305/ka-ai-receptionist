@@ -7,7 +7,7 @@ from app.core.database import get_db
 from app.models.customer import Customer
 from app.models.message import Message
 from app.services.conversation_service import handle_customer_message
-from app.services.whatsapp_service import send_whatsapp_text
+from app.services.whatsapp_service import send_whatsapp_smart_response
 
 
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["whatsapp"])
@@ -23,6 +23,39 @@ def verify_whatsapp_webhook(
         return PlainTextResponse(content=str(hub_challenge or ""), media_type="text/plain")
 
     raise HTTPException(status_code=403, detail="Invalid WhatsApp verify token")
+
+
+def normalize_incoming_message(message: dict) -> tuple[str | None, str | None]:
+    message_type = message.get("type")
+
+    if message_type == "text":
+        body = message.get("text", {}).get("body")
+        return body, body
+
+    if message_type == "interactive":
+        interactive = message.get("interactive", {})
+
+        if "list_reply" in interactive:
+            reply = interactive["list_reply"]
+            command_id = reply.get("id", "")
+            title = reply.get("title", "")
+
+            if command_id.startswith("command_"):
+                return command_id.replace("command_", ""), title
+
+            return title, title
+
+        if "button_reply" in interactive:
+            reply = interactive["button_reply"]
+            command_id = reply.get("id", "")
+            title = reply.get("title", "")
+
+            if command_id.startswith("command_"):
+                return command_id.replace("command_", ""), title
+
+            return title, title
+
+    return None, None
 
 
 @router.post("")
@@ -43,12 +76,13 @@ async def receive_whatsapp_webhook(
         contact = value["contacts"][0]
         message = value["messages"][0]
 
-        if message.get("type") != "text":
-            return {"status": "ignored_non_text"}
+        message_body, display_body = normalize_incoming_message(message)
+
+        if not message_body:
+            return {"status": "ignored_non_supported_message"}
 
         phone = contact["wa_id"]
         customer_name = contact["profile"]["name"]
-        message_body = message["text"]["body"]
 
         customer = db.query(Customer).filter(Customer.phone == phone).first()
 
@@ -68,17 +102,17 @@ async def receive_whatsapp_webhook(
             channel="whatsapp",
             direction="inbound",
             external_message_id=message["id"],
-            body=message_body,
+            body=display_body or message_body,
         )
 
         db.add(new_message)
         db.commit()
 
-        print(f"WHATSAPP SAVED | customer={customer.name} | message={message_body}")
+        print(f"WHATSAPP SAVED | customer={customer.name} | message={display_body or message_body}")
 
         auto_reply = handle_customer_message(db, customer, message_body)
 
-        send_whatsapp_text(phone, auto_reply)
+        send_whatsapp_smart_response(phone, auto_reply)
 
     except Exception as exc:
         print("WEBHOOK PARSE ERROR:", exc)
