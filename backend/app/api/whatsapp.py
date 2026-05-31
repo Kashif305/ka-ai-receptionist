@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.customer import Customer
 from app.models.message import Message
+from app.services.conversation_service import handle_customer_message
 from app.services.whatsapp_service import send_whatsapp_text
 
 
@@ -18,7 +20,7 @@ def verify_whatsapp_webhook(
     hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
 ):
     if hub_mode == "subscribe" and hub_verify_token == settings.whatsapp_verify_token:
-        return hub_challenge
+        return PlainTextResponse(content=str(hub_challenge or ""), media_type="text/plain")
 
     raise HTTPException(status_code=403, detail="Invalid WhatsApp verify token")
 
@@ -74,18 +76,7 @@ async def receive_whatsapp_webhook(
 
         print(f"WHATSAPP SAVED | customer={customer.name} | message={message_body}")
 
-        auto_reply = """Hello 👋
-
-Thank you for contacting KA AI Receptionist.
-
-Please choose:
-
-1️⃣ Book Appointment
-2️⃣ Reschedule Appointment
-3️⃣ Cancel Appointment
-4️⃣ Services & Pricing
-5️⃣ Speak With Staff
-"""
+        auto_reply = handle_customer_message(db, customer, message_body)
 
         send_whatsapp_text(phone, auto_reply)
 
