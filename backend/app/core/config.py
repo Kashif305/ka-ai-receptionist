@@ -5,7 +5,13 @@ class Settings(BaseSettings):
     app_name: str = "KA AI Receptionist"
     app_env: str = "local"
     app_debug: bool = True
+
     database_url: str = "postgresql+psycopg://ka_user:ka_password@localhost:5432/ka_ai_receptionist"
+
+    whatsapp_phone_number_id: str | None = None
+    whatsapp_waba_id: str | None = None
+    whatsapp_access_token: str | None = None
+    whatsapp_verify_token: str = "ka_ai_receptionist_verify"
 
     model_config = SettingsConfigDict(
         env_file=".env",
