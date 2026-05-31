@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.customer import Customer
 from app.models.message import Message
+from app.services.ai_intent_service import classify_intent
 from app.services.conversation_service import handle_customer_message
 from app.services.whatsapp_service import send_whatsapp_smart_response
 
@@ -110,7 +111,16 @@ async def receive_whatsapp_webhook(
 
         print(f"WHATSAPP SAVED | customer={customer.name} | message={display_body or message_body}")
 
-        auto_reply = handle_customer_message(db, customer, message_body)
+        intent_result = classify_intent(message_body)
+
+        routed_message = message_body
+        if intent_result.command != "unknown" and intent_result.confidence >= 0.65:
+            print(
+                f"AI_INTENT | message={message_body} | intent={intent_result.intent} | command={intent_result.command} | confidence={intent_result.confidence}"
+            )
+            routed_message = intent_result.command
+
+        auto_reply = handle_customer_message(db, customer, routed_message)
 
         send_whatsapp_smart_response(phone, auto_reply)
 

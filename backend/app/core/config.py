@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     whatsapp_access_token: str | None = None
     whatsapp_verify_token: str = "ka_ai_receptionist_verify"
 
+    openai_api_key: str | None = None
+    ai_intent_enabled: bool = False
+    openai_model: str = "gpt-4.1-mini"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
