@@ -54,6 +54,14 @@ Please choose a time:
 3️⃣ 4:00 PM
 """
 
+
+CANCEL_CONFIRM_MENU = """Before I cancel, would you like to reschedule instead?
+
+1️⃣ Reschedule Appointment
+2️⃣ Confirm Cancellation
+3️⃣ Keep Appointment
+"""
+
 STAFF_REPLY = "No problem. A staff member will follow up with you soon."
 
 
@@ -66,7 +74,7 @@ SERVICE_MAP = {
 
 BUSINESS_OPEN_HOUR = 12
 BUSINESS_CLOSE_HOUR = 21
-CLOSED_WEEKDAYS = {0}  # Monday = 0
+CLOSED_WEEKDAYS = set()  # Dev QA: allow all weekdays
 
 
 def is_business_open_at(start_at: datetime) -> bool:
@@ -275,9 +283,42 @@ Date/Time: {format_business_datetime(appointment.start_at)}
 Status: {appointment.status.title()}"""
 
 
+
+def cancel_next_confirmed_appointment(db: Session, customer: Customer) -> str:
+    appointment = get_next_confirmed_appointment(db, customer)
+
+    if not appointment:
+        return "I could not find an active appointment to cancel."
+
+    cancelled_at = format_business_datetime(appointment.start_at)
+
+    appointment.status = "cancelled"
+    appointment.notes = "Cancelled from WhatsApp flow"
+    db.commit()
+
+    return f"""Your appointment has been cancelled ✅
+
+Cancelled appointment:
+{cancelled_at}"""
+
+
 def handle_customer_message(db: Session, customer: Customer, message_body: str) -> str:
     text = message_body.strip().lower()
     state = get_or_create_state(db, customer)
+
+    # Safety: any main-menu cancel request must confirm before cancelling.
+    if text == "3" and state.current_state == "main_menu":
+        appointment = get_next_confirmed_appointment(db, customer)
+
+        if not appointment:
+            return "I could not find an active appointment to cancel."
+
+        state.current_state = "cancel_confirm"
+        state.current_step = "awaiting_cancel_choice"
+        state.context_json = "{}"
+        db.commit()
+
+        return CANCEL_CONFIRM_MENU
 
     if text in {"hello", "hi", "hey", "menu", "start"}:
         state.current_state = "main_menu"
@@ -356,6 +397,56 @@ Cancelled appointment:
             return get_upcoming_appointment_reply(db, customer)
 
         return MAIN_MENU
+
+
+
+    if state.current_state == "cancel_confirm" and state.current_step == "awaiting_cancel_choice":
+        if text in {"1", "reschedule appointment", "reschedule instead"}:
+            appointment = get_next_confirmed_appointment(db, customer)
+
+            if not appointment:
+                state.current_state = "main_menu"
+                state.current_step = "completed"
+                state.context_json = "{}"
+                db.commit()
+                return "I could not find an active appointment to reschedule."
+
+            context = {
+                "appointment_id": appointment.id,
+                "service_id": appointment.service_id,
+            }
+
+            state.current_state = "reschedule"
+            state.current_step = "select_reschedule_time"
+            save_context(db, state, context)
+
+            return f"""Good choice — let's reschedule instead.
+
+Current appointment:
+{format_business_datetime(appointment.start_at)}
+
+Please choose a new time for tomorrow:
+
+1️⃣ 2:00 PM
+2️⃣ 3:00 PM
+3️⃣ 4:00 PM"""
+
+        if text in {"2", "confirm cancellation", "confirm cancel", "cancel appointment"}:
+            reply = cancel_next_confirmed_appointment(db, customer)
+            state.current_state = "main_menu"
+            state.current_step = "completed"
+            state.context_json = "{}"
+            db.commit()
+            return reply
+
+        if text in {"3", "keep appointment", "do not cancel"}:
+            state.current_state = "main_menu"
+            state.current_step = "completed"
+            state.context_json = "{}"
+            db.commit()
+            return "No problem — your appointment is still confirmed ✅"
+
+        return CANCEL_CONFIRM_MENU
 
 
     if state.current_state == "reschedule" and state.current_step == "select_reschedule_time":
