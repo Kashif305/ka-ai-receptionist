@@ -9,6 +9,7 @@ from app.models.availability_slot import AvailabilitySlot
 from app.models.conversation_state import ConversationState
 from app.models.customer import Customer
 from app.models.service import Service
+from app.services.staff_assignment_service import get_available_staff_for_service
 
 
 BUSINESS_TZ = ZoneInfo("America/New_York")
@@ -195,17 +196,26 @@ def create_real_appointment(
 ) -> Appointment | None:
     end_at = start_at + timedelta(minutes=service.duration_minutes)
 
-    if is_slot_booked(db, start_at, end_at):
+    available_staff = get_available_staff_for_service(
+        db=db,
+        service=service,
+        start_at=start_at,
+    )
+
+    if not available_staff:
         return None
+
+    assigned_staff = available_staff[0]
 
     appointment = Appointment(
         customer_id=customer.id,
         service_id=service.id,
+        assigned_staff_id=assigned_staff.id,
         start_at=start_at,
         end_at=end_at,
         status="confirmed",
         source="whatsapp",
-        notes="Created from WhatsApp booking flow",
+        notes=f"Created from WhatsApp booking flow. Assigned staff: {assigned_staff.name}",
     )
 
     db.add(appointment)
@@ -213,7 +223,6 @@ def create_real_appointment(
     db.refresh(appointment)
 
     return appointment
-
 
 
 
@@ -269,19 +278,17 @@ def get_available_time_choices(
         )
         end_at = start_at + timedelta(minutes=service.duration_minutes)
 
-        conflict_query = (
-            db.query(Appointment)
-            .filter(Appointment.status == "confirmed")
-            .filter(Appointment.start_at < end_at)
-            .filter(Appointment.end_at > start_at)
+        available_staff = get_available_staff_for_service(
+            db=db,
+            service=service,
+            start_at=start_at,
+            exclude_appointment_id=exclude_appointment_id,
         )
-        if exclude_appointment_id is not None:
-            conflict_query = conflict_query.filter(Appointment.id != exclude_appointment_id)
 
-        if conflict_query.first() is None:
+        if available_staff:
             key = str(len(time_choices) + 1)
             label = start_at.strftime("%I:%M %p").lstrip("0")
-            lines.append(f"{key}️⃣ {label}")
+            lines.append(f"🔹 {key}  *{label}*")
             time_choices[key] = slot_time.strftime("%H:%M")
 
     if not lines:
@@ -290,7 +297,7 @@ def get_available_time_choices(
             {},
         )
 
-    return "Available times:\n\n" + "\n".join(lines), time_choices
+    return "✨ Available Times\n\n" + "\n".join(lines) + "\n\nTap a time below or reply with the number.", time_choices
 
 
 def selected_context_time(context: dict, choice: str) -> time | None:
@@ -338,6 +345,29 @@ def get_booking_date(choice: str) -> date | None:
         return today + timedelta(days=2)
 
     return None
+
+def build_booking_date_choices() -> tuple[str, dict[str, str]]:
+    today = datetime.now(BUSINESS_TZ).date()
+    choices: dict[str, str] = {}
+    lines: list[str] = []
+
+    for index in range(1, 8):
+        selected_date = today + timedelta(days=index)
+        key = str(index)
+        label = selected_date.strftime("%a, %b %d")
+
+        if index == 1:
+            label = f"Tomorrow — {label}"
+
+        lines.append(f"{key}. {label}")
+        choices[key] = selected_date.isoformat()
+
+    more_key = "8"
+    lines.append(f"{more_key}. More Dates...")
+    choices[more_key] = "custom"
+
+    message = "Available dates:\n\n" + "\n".join(lines)
+    return message, choices
 
 
 def get_services_and_pricing_reply(db: Session) -> str:
@@ -725,29 +755,38 @@ New appointment:
                 selected["price"],
             )
 
+            date_menu, date_choices = build_booking_date_choices()
+
             context = {
                 "service_id": service.id,
                 "service_name": service.name,
                 "duration_minutes": service.duration_minutes,
+                "date_choices": date_choices,
             }
 
             state.current_step = "select_date"
             save_context(db, state, context)
-            return DATE_MENU
+            return date_menu
 
         return SERVICE_MENU
 
     if state.current_state == "booking" and state.current_step == "select_date":
         context = get_context(state)
+        date_choices = context.get("date_choices", {})
+        selected_value = date_choices.get(text)
 
-        if text == "3":
+        if selected_value == "custom":
             state.current_step = "awaiting_custom_booking_date"
             db.commit()
             return "Please enter your appointment date in MM/DD/YYYY format.\n\nExample: 07/15/2026"
 
-        selected_date = get_booking_date(text)
-        if selected_date is None:
-            return DATE_MENU
+        if not selected_value:
+            date_menu, date_choices = build_booking_date_choices()
+            context["date_choices"] = date_choices
+            save_context(db, state, context)
+            return date_menu
+
+        selected_date = datetime.fromisoformat(selected_value).date()
 
         service = db.get(Service, context.get("service_id"))
         if not service:
@@ -755,7 +794,10 @@ New appointment:
 
         available, time_choices = get_available_time_choices(db, selected_date, service)
         if not time_choices:
-            return f"{available}\n\n{DATE_MENU}"
+            date_menu, date_choices = build_booking_date_choices()
+            context["date_choices"] = date_choices
+            save_context(db, state, context)
+            return f"{available}\n\n{date_menu}"
 
         context["appointment_date"] = selected_date.isoformat()
         context["time_choices"] = time_choices
@@ -838,13 +880,16 @@ New appointment:
             state.context_json = "{}"
             db.commit()
 
+            staff_name = appointment.assigned_staff.name if appointment.assigned_staff else "Assigned staff"
+
             return f"""You're booked ✅
 
+Staff: {staff_name}
 Service: {service.name}
 Date: {appointment.start_at.astimezone(BUSINESS_TZ).strftime('%A, %B %d, %Y')}
 Time: {appointment.start_at.astimezone(BUSINESS_TZ).strftime('%I:%M %p')}
 
-Thank you for using KA AI Receptionist."""
+Thank you for choosing Samina Beauty Salon."""
 
         return time_choice_prompt(context)
 

@@ -76,14 +76,41 @@ def send_whatsapp_list(
 def _extract_time_rows(message: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
 
-    for key, label in re.findall(r"(\d+)️⃣\s+([0-9:]+\s[AP]M)", message):
-        rows.append(
-            {
+    patterns = [
+        r"(\d+)️⃣\s+([0-9:]+\s[AP]M)",
+        r"(\d+)\.\s+\*?([0-9:]+\s[AP]M)\*?",
+        r"🔹\s*(\d+)\s+\*?([0-9:]+\s[AP]M)\*?",
+        r"◆\s*(\d+)\s+\*?([0-9:]+\s[AP]M)\*?",
+        r"▸\s*(\d+)\s+\*?([0-9:]+\s[AP]M)\*?",
+        r"\[\s*(\d+)\s*\]\s+\*?([0-9:]+\s[AP]M)\*?",
+    ]
+
+    seen: set[str] = set()
+
+    for pattern in patterns:
+        for key, label in re.findall(pattern, message):
+            if key in seen:
+                continue
+
+            seen.add(key)
+            rows.append({
                 "id": f"command_{key}",
                 "title": label,
-                "description": f"Choose {label}",
-            }
-        )
+                "description": "Tap to choose this time",
+            })
+
+    return rows
+
+
+def _extract_date_rows(message: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+
+    for key, label in re.findall(r"(\d+)\.\s+([^\n]+)", message):
+        rows.append({
+            "id": f"command_{key}",
+            "title": label[:24],
+            "description": "Tap to choose this date",
+        })
 
     return rows
 
@@ -91,12 +118,12 @@ def _extract_time_rows(message: str) -> list[dict[str, str]]:
 def send_whatsapp_smart_response(to_phone: str, message: str):
     clean = message.strip()
 
-    if clean.startswith("Hello 👋"):
+    if "How may I assist you today?" in clean:
         return send_whatsapp_list(
             to_phone=to_phone,
             header="KA AI Receptionist",
-            body="How can I help you today?",
-            button_text="Choose Option",
+            body=clean.split("1️⃣ Book Appointment")[0].strip(),
+            button_text="Get Started",
             rows=[
                 {"id": "command_1", "title": "Book Appointment", "description": "Schedule a new appointment"},
                 {"id": "command_2", "title": "Reschedule", "description": "Move an existing appointment"},
@@ -120,18 +147,17 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
             ],
         )
 
-    if "When would you like to come in?" in clean:
-        return send_whatsapp_list(
-            to_phone=to_phone,
-            header="Choose Date",
-            body="When would you like to come in?",
-            button_text="Select Date",
-            rows=[
-                {"id": "command_1", "title": "Tomorrow", "description": "Book for tomorrow"},
-                {"id": "command_2", "title": "Day After Tomorrow", "description": "Book two days from now"},
-                {"id": "command_3", "title": "Custom Date", "description": "Enter your own date"},
-            ],
-        )
+    if "Available dates:" in clean:
+        rows = _extract_date_rows(clean)
+
+        if rows:
+            return send_whatsapp_list(
+                to_phone=to_phone,
+                header="Choose Date",
+                body="Please choose an available appointment date.",
+                button_text="Select Date",
+                rows=rows,
+            )
 
     if "Please choose a new date:" in clean:
         return send_whatsapp_list(
@@ -147,7 +173,7 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
             ],
         )
 
-    if "Please choose a time" in clean or "Available times:" in clean:
+    if "Please choose a time" in clean or "Available times" in clean or "Available Times" in clean:
         rows = _extract_time_rows(clean)
 
         if 0 < len(rows) <= 10:
