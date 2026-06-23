@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     ai_intent_enabled: bool = False
     openai_model: str = "gpt-4.1-mini"
 
+    owner_phone_numbers: str = ""
+
+    daily_summary_enabled: bool = False
+    daily_summary_time: str = "19:00"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

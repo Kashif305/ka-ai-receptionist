@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import FastAPI
 
 from app import models  # noqa: F401
@@ -9,6 +11,7 @@ from app.api.services import router as services_router
 from app.api.whatsapp import router as whatsapp_router
 from app.core.config import settings
 from app.core.database import create_db_tables
+from app.services.daily_summary_service import daily_summary_loop
 
 
 app = FastAPI(
@@ -21,6 +24,7 @@ app = FastAPI(
 @app.on_event("startup")
 def on_startup() -> None:
     create_db_tables()
+    asyncio.create_task(daily_summary_loop())
 
 
 app.include_router(health_router)

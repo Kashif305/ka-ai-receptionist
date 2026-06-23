@@ -9,6 +9,7 @@ from app.models.customer import Customer
 from app.models.message import Message
 from app.services.ai_intent_service import classify_intent
 from app.services.conversation_service import handle_customer_message
+from app.services.owner_summary_service import get_owner_summary_reply
 from app.services.whatsapp_service import send_whatsapp_smart_response
 
 
@@ -135,6 +136,11 @@ async def receive_whatsapp_webhook(
                     db.commit()
 
             routed_message = intent_result.command
+
+        owner_reply = get_owner_summary_reply(db, phone, message_body)
+        if owner_reply:
+            send_whatsapp_smart_response(phone, owner_reply)
+            return {"status": "owner_summary_sent"}
 
         auto_reply = handle_customer_message(db, customer, routed_message)
 
