@@ -14,19 +14,34 @@ from app.models.service import Service
 BUSINESS_TZ = ZoneInfo("America/New_York")
 
 
-MAIN_MENU = """Hello 👋
-
-Thank you for contacting KA AI Receptionist.
-
-Please choose:
-
-1️⃣ Book Appointment
+MENU_OPTIONS = """1️⃣ Book Appointment
 2️⃣ Reschedule Appointment
 3️⃣ Cancel Appointment
 4️⃣ Services & Pricing
-5️⃣ Speak With Staff
-6️⃣ My Appointment
-"""
+5️⃣ Speak with Staff
+6️⃣ My Appointment"""
+
+
+def build_main_menu(customer: Customer | None = None, is_returning: bool = False) -> str:
+    if customer and is_returning:
+        first_name = (customer.name or "").split()[0] or "there"
+        greeting = f"""✨ Welcome back, {first_name}!
+
+Thank you for choosing Samina Beauty Salon again. My name is Samina AI Receptionist and I'm here to help."""
+    else:
+        greeting = """✨ Welcome to Samina Beauty Salon!
+
+Thank you for contacting us. My name is Samina AI Receptionist and I'm here to help."""
+
+    return f"""{greeting}
+
+How may I assist you today?
+
+{MENU_OPTIONS}"""
+
+
+MAIN_MENU = build_main_menu()
+
 
 SERVICE_MENU = """Great — let's book your appointment.
 
@@ -449,7 +464,7 @@ def handle_customer_message(db: Session, customer: Customer, message_body: str) 
         state.current_step = "awaiting_menu_choice"
         state.context_json = "{}"
         db.commit()
-        return MAIN_MENU
+        return build_main_menu(customer, is_returning=True)
 
     if state.current_state == "main_menu" or state.current_step == "awaiting_menu_choice":
         if text == "1":
