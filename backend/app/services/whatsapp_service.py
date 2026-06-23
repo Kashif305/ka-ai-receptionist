@@ -76,7 +76,7 @@ def send_whatsapp_list(
 def _extract_time_rows(message: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
 
-    for key, label in re.findall(r"([123])️⃣\s+([0-9:]+\s[AP]M)", message):
+    for key, label in re.findall(r"(\d+)️⃣\s+([0-9:]+\s[AP]M)", message):
         rows.append(
             {
                 "id": f"command_{key}",
@@ -128,15 +128,29 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
             button_text="Select Date",
             rows=[
                 {"id": "command_1", "title": "Tomorrow", "description": "Book for tomorrow"},
-                {"id": "command_2", "title": "This Week", "description": "Coming soon"},
-                {"id": "command_3", "title": "Custom Date", "description": "Coming soon"},
+                {"id": "command_2", "title": "Day After Tomorrow", "description": "Book two days from now"},
+                {"id": "command_3", "title": "Custom Date", "description": "Enter your own date"},
+            ],
+        )
+
+    if "Please choose a new date:" in clean:
+        return send_whatsapp_list(
+            to_phone=to_phone,
+            header="Choose New Date",
+            body="When would you like to move your appointment?",
+            button_text="Select Date",
+            rows=[
+                {"id": "command_1", "title": "Tomorrow", "description": "Move to tomorrow"},
+                {"id": "command_2", "title": "Day After Tomorrow", "description": "Move forward two days"},
+                {"id": "command_3", "title": "Next Weekday", "description": "Choose the next weekday"},
+                {"id": "command_4", "title": "Custom Date", "description": "Enter your own date"},
             ],
         )
 
     if "Please choose a time" in clean or "Available times:" in clean:
         rows = _extract_time_rows(clean)
 
-        if rows:
+        if 0 < len(rows) <= 10:
             body = "Please choose an available appointment time."
             if "Sorry, that time is already booked" in clean:
                 body = "That time is already booked. Please choose another available time."

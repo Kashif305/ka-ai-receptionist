@@ -1,10 +1,11 @@
 import json
-from datetime import datetime, timedelta, time
+from datetime import date, datetime, timedelta, time
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
 from app.models.appointment import Appointment
+from app.models.availability_slot import AvailabilitySlot
 from app.models.conversation_state import ConversationState
 from app.models.customer import Customer
 from app.models.service import Service
@@ -41,8 +42,16 @@ DATE_MENU = """Perfect.
 When would you like to come in?
 
 1️⃣ Tomorrow
-2️⃣ This Week
+2️⃣ Day after tomorrow
 3️⃣ Custom Date
+"""
+
+RESCHEDULE_DATE_MENU = """Please choose a new date:
+
+1️⃣ Tomorrow
+2️⃣ Day after tomorrow
+3️⃣ Next available weekday
+4️⃣ Custom Date
 """
 
 TIME_MENU = """Tomorrow works.
@@ -171,7 +180,7 @@ def create_real_appointment(
 ) -> Appointment | None:
     end_at = start_at + timedelta(minutes=service.duration_minutes)
 
-    if is_slot_booked(db, start_at):
+    if is_slot_booked(db, start_at, end_at):
         return None
 
     appointment = Appointment(
@@ -193,34 +202,148 @@ def create_real_appointment(
 
 
 
-def is_slot_booked(db: Session, start_at: datetime) -> bool:
+def is_slot_booked(db: Session, start_at: datetime, end_at: datetime) -> bool:
     return (
         db.query(Appointment)
         .filter(Appointment.status == "confirmed")
-        .filter(Appointment.start_at == start_at)
+        .filter(Appointment.start_at < end_at)
+        .filter(Appointment.end_at > start_at)
         .first()
         is not None
     )
 
 
-def get_available_time_choices(db: Session, selected_date, service: Service) -> str:
-    lines = []
+def get_available_time_choices(
+    db: Session,
+    selected_date,
+    service: Service,
+    exclude_appointment_id: int | None = None,
+) -> tuple[str, dict[str, str]]:
+    availability_windows = (
+        db.query(AvailabilitySlot)
+        .filter(AvailabilitySlot.weekday == selected_date.weekday())
+        .filter(AvailabilitySlot.active.is_(True))
+        .order_by(AvailabilitySlot.start_time.asc())
+        .all()
+    )
 
-    for key, slot_time in TIME_MAP.items():
+    candidate_times: list[time] = []
+    has_configured_availability = db.query(AvailabilitySlot.id).first() is not None
+    if availability_windows:
+        seen_times: set[time] = set()
+        for window in availability_windows:
+            cursor = datetime.combine(selected_date, window.start_time)
+            window_end = datetime.combine(selected_date, window.end_time)
+            service_duration = timedelta(minutes=service.duration_minutes)
+            while cursor + service_duration <= window_end:
+                if cursor.time() not in seen_times:
+                    candidate_times.append(cursor.time())
+                    seen_times.add(cursor.time())
+                cursor += timedelta(minutes=window.slot_minutes)
+        candidate_times.sort()
+    elif not has_configured_availability:
+        candidate_times = list(TIME_MAP.values())
+
+    lines = []
+    time_choices: dict[str, str] = {}
+    for slot_time in candidate_times:
         start_at = datetime.combine(
             selected_date,
             slot_time,
             tzinfo=BUSINESS_TZ,
         )
+        end_at = start_at + timedelta(minutes=service.duration_minutes)
 
-        if not is_slot_booked(db, start_at):
+        conflict_query = (
+            db.query(Appointment)
+            .filter(Appointment.status == "confirmed")
+            .filter(Appointment.start_at < end_at)
+            .filter(Appointment.end_at > start_at)
+        )
+        if exclude_appointment_id is not None:
+            conflict_query = conflict_query.filter(Appointment.id != exclude_appointment_id)
+
+        if conflict_query.first() is None:
+            key = str(len(time_choices) + 1)
             label = start_at.strftime("%I:%M %p").lstrip("0")
             lines.append(f"{key}️⃣ {label}")
+            time_choices[key] = slot_time.strftime("%H:%M")
 
     if not lines:
-        return "No appointment slots are available for that day.\n\nPlease choose another date or type menu to start over."
+        return (
+            "No appointment slots are available for that day.\n\nPlease choose another date or type menu to start over.",
+            {},
+        )
 
-    return "Available times:\n\n" + "\n".join(lines)
+    return "Available times:\n\n" + "\n".join(lines), time_choices
+
+
+def selected_context_time(context: dict, choice: str) -> time | None:
+    value = context.get("time_choices", {}).get(choice)
+    if not value:
+        return None
+    try:
+        return time.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def time_choice_prompt(context: dict) -> str:
+    choices = context.get("time_choices", {})
+    if not choices:
+        return "Please choose one of the displayed appointment times."
+    return f"Please choose an appointment time from: {', '.join(choices)}."
+
+
+def get_reschedule_date(choice: str) -> date | None:
+    today = datetime.now(BUSINESS_TZ).date()
+
+    if choice == "1":
+        return today + timedelta(days=1)
+
+    if choice == "2":
+        return today + timedelta(days=2)
+
+    if choice == "3":
+        candidate = today + timedelta(days=3)
+        while candidate.weekday() >= 5:
+            candidate += timedelta(days=1)
+        return candidate
+
+    return None
+
+
+def get_booking_date(choice: str) -> date | None:
+    today = datetime.now(BUSINESS_TZ).date()
+
+    if choice == "1":
+        return today + timedelta(days=1)
+
+    if choice == "2":
+        return today + timedelta(days=2)
+
+    return None
+
+
+def get_services_and_pricing_reply(db: Session) -> str:
+    services = (
+        db.query(Service)
+        .filter(Service.active.is_(True))
+        .order_by(Service.name.asc())
+        .all()
+    )
+
+    if not services:
+        return "We do not have any active services listed right now. Please check back soon or choose Speak With Staff for help."
+
+    lines = ["Services & Pricing:"]
+    for service in services:
+        price = f"${service.price:.2f}" if service.price is not None else "Price available on request"
+        lines.append(
+            f"• {service.name} — {service.duration_minutes} minutes — {price}"
+        )
+
+    return "\n\n".join([lines[0], "\n".join(lines[1:])])
 
 
 def get_next_confirmed_appointment(db: Session, customer: Customer) -> Appointment | None:
@@ -251,7 +374,8 @@ def reschedule_appointment(
         db.query(Appointment)
         .filter(Appointment.id != appointment.id)
         .filter(Appointment.status == "confirmed")
-        .filter(Appointment.start_at == new_start_at)
+        .filter(Appointment.start_at < new_end_at)
+        .filter(Appointment.end_at > new_start_at)
         .first()
     )
 
@@ -347,17 +471,13 @@ def handle_customer_message(db: Session, customer: Customer, message_body: str) 
             }
 
             state.current_state = "reschedule"
-            state.current_step = "select_reschedule_time"
+            state.current_step = "select_reschedule_date"
             save_context(db, state, context)
             return f"""I found your upcoming appointment:
 
 {format_business_datetime(appointment.start_at)}
 
-Please choose a new time for tomorrow:
-
-1️⃣ 2:00 PM
-2️⃣ 3:00 PM
-3️⃣ 4:00 PM"""
+{RESCHEDULE_DATE_MENU}"""
 
         if text == "3":
             appointment = (
@@ -385,7 +505,7 @@ Cancelled appointment:
 {format_business_datetime(appointment.start_at)}"""
 
         if text == "4":
-            return "Our demo services include Eyebrow Threading, Facial, and Haircut."
+            return get_services_and_pricing_reply(db)
 
         if text == "5":
             state.current_state = "human_handoff"
@@ -417,7 +537,7 @@ Cancelled appointment:
             }
 
             state.current_state = "reschedule"
-            state.current_step = "select_reschedule_time"
+            state.current_step = "select_reschedule_date"
             save_context(db, state, context)
 
             return f"""Good choice — let's reschedule instead.
@@ -425,11 +545,7 @@ Cancelled appointment:
 Current appointment:
 {format_business_datetime(appointment.start_at)}
 
-Please choose a new time for tomorrow:
-
-1️⃣ 2:00 PM
-2️⃣ 3:00 PM
-3️⃣ 4:00 PM"""
+{RESCHEDULE_DATE_MENU}"""
 
         if text in {"2", "confirm cancellation", "confirm cancel", "cancel appointment"}:
             reply = cancel_next_confirmed_appointment(db, customer)
@@ -449,12 +565,94 @@ Please choose a new time for tomorrow:
         return CANCEL_CONFIRM_MENU
 
 
-    if state.current_state == "reschedule" and state.current_step == "select_reschedule_time":
-        if text in TIME_MAP:
-            context = get_context(state)
-            appointment_id = context.get("appointment_id")
+    if state.current_state == "reschedule" and state.current_step == "select_reschedule_date":
+        if text == "4":
+            state.current_step = "awaiting_custom_reschedule_date"
+            db.commit()
+            return "Please enter your new appointment date in MM/DD/YYYY format.\n\nExample: 07/15/2026"
 
-            if not appointment_id:
+        selected_date = get_reschedule_date(text)
+        if selected_date is None:
+            return RESCHEDULE_DATE_MENU
+
+        context = get_context(state)
+        appointment_id = context.get("appointment_id")
+        service_id = context.get("service_id")
+        appointment = db.get(Appointment, appointment_id) if appointment_id else None
+        service = db.get(Service, service_id) if service_id else None
+
+        if not appointment or appointment.status != "confirmed" or not service:
+            state.current_state = "main_menu"
+            state.current_step = "awaiting_menu_choice"
+            state.context_json = "{}"
+            db.commit()
+            return "I could not find that active appointment anymore. Please reply 2 to start again."
+
+        available, time_choices = get_available_time_choices(
+            db,
+            selected_date,
+            service,
+            exclude_appointment_id=appointment.id,
+        )
+
+        if available.startswith("No appointment slots"):
+            return f"{available}\n\n{RESCHEDULE_DATE_MENU}"
+
+        context["appointment_date"] = selected_date.isoformat()
+        context["time_choices"] = time_choices
+        state.current_step = "select_reschedule_time"
+        save_context(db, state, context)
+        return f"New date: {selected_date.strftime('%A, %B %d, %Y')}\n\n{available}"
+
+    if state.current_state == "reschedule" and state.current_step == "awaiting_custom_reschedule_date":
+        try:
+            selected_date = datetime.strptime(text, "%m/%d/%Y").date()
+        except ValueError:
+            return "That date is invalid. Please enter a valid date in MM/DD/YYYY format.\n\nExample: 07/15/2026"
+
+        if selected_date.strftime("%m/%d/%Y") != text:
+            return "That date is invalid. Please enter a valid date in MM/DD/YYYY format.\n\nExample: 07/15/2026"
+
+        if selected_date < datetime.now(BUSINESS_TZ).date():
+            return "That date is in the past. Please enter today or a future date in MM/DD/YYYY format."
+
+        context = get_context(state)
+        appointment_id = context.get("appointment_id")
+        service_id = context.get("service_id")
+        appointment = db.get(Appointment, appointment_id) if appointment_id else None
+        service = db.get(Service, service_id) if service_id else None
+
+        if not appointment or appointment.status != "confirmed" or not service:
+            state.current_state = "main_menu"
+            state.current_step = "awaiting_menu_choice"
+            state.context_json = "{}"
+            db.commit()
+            return "I could not find that active appointment anymore. Please reply 2 to start again."
+
+        available, time_choices = get_available_time_choices(
+            db,
+            selected_date,
+            service,
+            exclude_appointment_id=appointment.id,
+        )
+
+        if available.startswith("No appointment slots"):
+            return f"{available}\n\nPlease enter another date in MM/DD/YYYY format."
+
+        context["appointment_date"] = selected_date.isoformat()
+        context["time_choices"] = time_choices
+        state.current_step = "select_reschedule_time"
+        save_context(db, state, context)
+        return f"New date: {selected_date.strftime('%A, %B %d, %Y')}\n\n{available}"
+
+    if state.current_state == "reschedule" and state.current_step == "select_reschedule_time":
+        context = get_context(state)
+        selected_time = selected_context_time(context, text)
+        if selected_time is not None:
+            appointment_id = context.get("appointment_id")
+            appointment_date = context.get("appointment_date")
+
+            if not appointment_id or not appointment_date:
                 state.current_state = "main_menu"
                 state.current_step = "awaiting_menu_choice"
                 state.context_json = "{}"
@@ -465,11 +663,10 @@ Please choose a new time for tomorrow:
             if not appointment or appointment.status != "confirmed":
                 return "I could not find that active appointment anymore."
 
-            selected_time = TIME_MAP[text]
-            tomorrow = datetime.now(BUSINESS_TZ).date() + timedelta(days=1)
+            selected_date = datetime.fromisoformat(appointment_date).date()
 
             new_start_at = datetime.combine(
-                tomorrow,
+                selected_date,
                 selected_time,
                 tzinfo=BUSINESS_TZ,
             )
@@ -480,11 +677,14 @@ Please choose a new time for tomorrow:
             ok = reschedule_appointment(db, appointment, new_start_at)
 
             if not ok:
-                available = get_available_time_choices(
+                available, time_choices = get_available_time_choices(
                     db,
-                    tomorrow,
+                    selected_date,
                     db.get(Service, appointment.service_id),
+                    exclude_appointment_id=appointment.id,
                 )
+                context["time_choices"] = time_choices
+                save_context(db, state, context)
                 return f"Sorry, that time is already booked.\n\n{available}"
 
             state.current_state = "main_menu"
@@ -497,7 +697,7 @@ Please choose a new time for tomorrow:
 New appointment:
 {format_business_datetime(appointment.start_at)}"""
 
-        return "Please choose 1, 2, or 3 for the new appointment time."
+        return time_choice_prompt(context)
 
 
     if state.current_state == "booking" and state.current_step == "select_service":
@@ -525,24 +725,60 @@ New appointment:
     if state.current_state == "booking" and state.current_step == "select_date":
         context = get_context(state)
 
-        if text == "1":
-            tomorrow = datetime.now(BUSINESS_TZ).date() + timedelta(days=1)
-            context["appointment_date"] = tomorrow.isoformat()
-            state.current_step = "select_time"
-            save_context(db, state, context)
-            return TIME_MENU
-
-        if text == "2":
-            return "This week availability is coming next. For now, please choose tomorrow by replying 1."
-
         if text == "3":
-            return "Custom date support is coming next. For now, please choose tomorrow by replying 1."
+            state.current_step = "awaiting_custom_booking_date"
+            db.commit()
+            return "Please enter your appointment date in MM/DD/YYYY format.\n\nExample: 07/15/2026"
 
-        return DATE_MENU
+        selected_date = get_booking_date(text)
+        if selected_date is None:
+            return DATE_MENU
+
+        service = db.get(Service, context.get("service_id"))
+        if not service:
+            return "Service was not found. Please reply 1 to start again."
+
+        available, time_choices = get_available_time_choices(db, selected_date, service)
+        if not time_choices:
+            return f"{available}\n\n{DATE_MENU}"
+
+        context["appointment_date"] = selected_date.isoformat()
+        context["time_choices"] = time_choices
+        state.current_step = "select_time"
+        save_context(db, state, context)
+        return f"Date: {selected_date.strftime('%A, %B %d, %Y')}\n\n{available}"
+
+    if state.current_state == "booking" and state.current_step == "awaiting_custom_booking_date":
+        try:
+            selected_date = datetime.strptime(text, "%m/%d/%Y").date()
+        except ValueError:
+            return "That date is invalid. Please enter a valid date in MM/DD/YYYY format.\n\nExample: 07/15/2026"
+
+        if selected_date.strftime("%m/%d/%Y") != text:
+            return "That date is invalid. Please enter a valid date in MM/DD/YYYY format.\n\nExample: 07/15/2026"
+
+        if selected_date < datetime.now(BUSINESS_TZ).date():
+            return "That date is in the past. Please enter today or a future date in MM/DD/YYYY format."
+
+        context = get_context(state)
+        service = db.get(Service, context.get("service_id"))
+        if not service:
+            return "Service was not found. Please reply 1 to start again."
+
+        available, time_choices = get_available_time_choices(db, selected_date, service)
+        if not time_choices:
+            return f"{available}\n\nPlease enter another date in MM/DD/YYYY format."
+
+        context["appointment_date"] = selected_date.isoformat()
+        context["time_choices"] = time_choices
+        state.current_step = "select_time"
+        save_context(db, state, context)
+        return f"Date: {selected_date.strftime('%A, %B %d, %Y')}\n\n{available}"
 
     if state.current_state == "booking" and state.current_step == "select_time":
-        if text in TIME_MAP:
-            context = get_context(state)
+        context = get_context(state)
+        selected_time = selected_context_time(context, text)
+        if selected_time is not None:
 
             service_id = context.get("service_id")
             appointment_date = context.get("appointment_date")
@@ -558,7 +794,6 @@ New appointment:
             if not service:
                 return "Service was not found. Please reply 1 to start again."
 
-            selected_time = TIME_MAP[text]
             appointment_day = datetime.fromisoformat(appointment_date).date()
 
             start_at = datetime.combine(
@@ -578,7 +813,9 @@ New appointment:
             )
 
             if appointment is None:
-                available = get_available_time_choices(db, appointment_day, service)
+                available, time_choices = get_available_time_choices(db, appointment_day, service)
+                context["time_choices"] = time_choices
+                save_context(db, state, context)
                 return f"Sorry, that time is already booked.\n\n{available}"
 
             state.current_state = "main_menu"
@@ -594,6 +831,6 @@ Time: {appointment.start_at.astimezone(BUSINESS_TZ).strftime('%I:%M %p')}
 
 Thank you for using KA AI Receptionist."""
 
-        return "Please choose 1, 2, or 3 for the appointment time."
+        return time_choice_prompt(context)
 
     return MAIN_MENU
