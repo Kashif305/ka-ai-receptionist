@@ -9,6 +9,8 @@ from app.models.availability_slot import AvailabilitySlot
 from app.models.conversation_state import ConversationState
 from app.models.customer import Customer
 from app.models.service import Service
+from app.core.config import settings
+from urllib.parse import quote_plus
 from app.services.staff_assignment_service import get_available_staff_for_service
 
 
@@ -133,6 +135,19 @@ def format_business_datetime(dt: datetime) -> str:
 
     local_dt = dt.astimezone(BUSINESS_TZ)
     return local_dt.strftime("%A, %B %d at %I:%M %p")
+
+
+def business_directions_text() -> str:
+    if not settings.business_address:
+        return ""
+
+    maps_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(settings.business_address)}"
+
+    return f"""\n\n📍 {settings.business_name}
+{settings.business_address}
+
+Directions:
+{maps_url}"""
 
 
 def get_or_create_state(db: Session, customer: Customer) -> ConversationState:
@@ -449,7 +464,7 @@ def get_upcoming_appointment_reply(db: Session, customer: Customer) -> str:
 
 Service: {service_name}
 Date/Time: {format_business_datetime(appointment.start_at)}
-Status: {appointment.status.title()}"""
+Status: {appointment.status.title()}{business_directions_text()}"""
 
 
 
@@ -740,7 +755,7 @@ Current appointment:
             return f"""Your appointment has been rescheduled ✅
 
 New appointment:
-{format_business_datetime(appointment.start_at)}"""
+{format_business_datetime(appointment.start_at)}{business_directions_text()}"""
 
         return time_choice_prompt(context)
 
@@ -889,7 +904,7 @@ Service: {service.name}
 Date: {appointment.start_at.astimezone(BUSINESS_TZ).strftime('%A, %B %d, %Y')}
 Time: {appointment.start_at.astimezone(BUSINESS_TZ).strftime('%I:%M %p')}
 
-Thank you for choosing Samina Beauty Salon."""
+Thank you for choosing Samina Beauty Salon.{business_directions_text()}"""
 
         return time_choice_prompt(context)
 

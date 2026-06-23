@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_debug: bool = True
 
+    business_name: str = "Samina Beauty Salon"
+    business_address: str = ""
+
     database_url: str = "postgresql+psycopg://ka_user:ka_password@localhost:5432/ka_ai_receptionist"
 
     whatsapp_phone_number_id: str | None = None
