@@ -154,7 +154,7 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
             return send_whatsapp_list(
                 to_phone=to_phone,
                 header="Choose Date",
-                body="Please choose an available appointment date.",
+                body=clean.split("Available dates:")[0].strip() or "Please choose an available appointment date.",
                 button_text="Select Date",
                 rows=rows,
             )

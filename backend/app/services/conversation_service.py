@@ -5,10 +5,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.models.appointment import Appointment
-from app.models.availability_slot import AvailabilitySlot
 from app.models.conversation_state import ConversationState
 from app.models.customer import Customer
 from app.models.service import Service
+from app.models.staff import StaffAvailability, StaffService
 from app.core.config import settings
 from urllib.parse import quote_plus
 from app.services.staff_assignment_service import get_available_staff_for_service
@@ -258,40 +258,56 @@ def get_available_time_choices(
     service: Service,
     exclude_appointment_id: int | None = None,
 ) -> tuple[str, dict[str, str]]:
-    availability_windows = (
-        db.query(AvailabilitySlot)
-        .filter(AvailabilitySlot.weekday == selected_date.weekday())
-        .filter(AvailabilitySlot.active.is_(True))
-        .order_by(AvailabilitySlot.start_time.asc())
+    """
+    Build customer-facing time choices from staff availability.
+
+    Source of truth:
+    staff_availability
+        ↓
+    staff_services
+        ↓
+    existing appointments
+        ↓
+    available customer time choices
+    """
+    staff_windows = (
+        db.query(StaffAvailability)
+        .join(StaffService, StaffService.staff_id == StaffAvailability.staff_id)
+        .filter(StaffAvailability.weekday == selected_date.weekday())
+        .filter(StaffAvailability.active.is_(True))
+        .filter(StaffService.service_id == service.id)
+        .order_by(StaffAvailability.start_time.asc())
         .all()
     )
 
     candidate_times: list[time] = []
-    has_configured_availability = db.query(AvailabilitySlot.id).first() is not None
-    if availability_windows:
-        seen_times: set[time] = set()
-        for window in availability_windows:
-            cursor = datetime.combine(selected_date, window.start_time)
-            window_end = datetime.combine(selected_date, window.end_time)
-            service_duration = timedelta(minutes=service.duration_minutes)
-            while cursor + service_duration <= window_end:
-                if cursor.time() not in seen_times:
-                    candidate_times.append(cursor.time())
-                    seen_times.add(cursor.time())
-                cursor += timedelta(minutes=window.slot_minutes)
-        candidate_times.sort()
-    elif not has_configured_availability:
-        candidate_times = list(TIME_MAP.values())
+    seen_times: set[time] = set()
+    service_duration = timedelta(minutes=service.duration_minutes)
+
+    for window in staff_windows:
+        cursor = datetime.combine(selected_date, window.start_time)
+        window_end = datetime.combine(selected_date, window.end_time)
+
+        while cursor + service_duration <= window_end:
+            slot_time = cursor.time()
+
+            if slot_time not in seen_times:
+                candidate_times.append(slot_time)
+                seen_times.add(slot_time)
+
+            cursor += timedelta(minutes=window.slot_duration_minutes)
+
+    candidate_times.sort()
 
     lines = []
     time_choices: dict[str, str] = {}
+
     for slot_time in candidate_times:
         start_at = datetime.combine(
             selected_date,
             slot_time,
             tzinfo=BUSINESS_TZ,
         )
-        end_at = start_at + timedelta(minutes=service.duration_minutes)
 
         available_staff = get_available_staff_for_service(
             db=db,
@@ -697,7 +713,7 @@ Current appointment:
         )
 
         if available.startswith("No appointment slots"):
-            return f"{available}\n\nPlease enter another date in MM/DD/YYYY format."
+            return f"Sorry, that day is fully booked for {service.name}.\n\nPlease enter another date in MM/DD/YYYY format."
 
         context["appointment_date"] = selected_date.isoformat()
         context["time_choices"] = time_choices
@@ -812,7 +828,7 @@ New appointment:
             date_menu, date_choices = build_booking_date_choices()
             context["date_choices"] = date_choices
             save_context(db, state, context)
-            return f"{available}\n\n{date_menu}"
+            return f"Sorry, that day is fully booked for {service.name}.\n\nPlease choose another date:\n\n{date_menu}"
 
         context["appointment_date"] = selected_date.isoformat()
         context["time_choices"] = time_choices
@@ -839,7 +855,7 @@ New appointment:
 
         available, time_choices = get_available_time_choices(db, selected_date, service)
         if not time_choices:
-            return f"{available}\n\nPlease enter another date in MM/DD/YYYY format."
+            return f"Sorry, that day is fully booked for {service.name}.\n\nPlease enter another date in MM/DD/YYYY format."
 
         context["appointment_date"] = selected_date.isoformat()
         context["time_choices"] = time_choices
