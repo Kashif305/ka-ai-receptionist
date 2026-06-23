@@ -13,3 +13,5 @@ __all__ = [
     "Message",
     "Service",
 ]
+
+from app.models.staff import Staff, StaffService, StaffAvailability
