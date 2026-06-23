@@ -430,21 +430,22 @@ def reschedule_appointment(
 
     new_end_at = new_start_at + timedelta(minutes=service.duration_minutes)
 
-    conflict = (
-        db.query(Appointment)
-        .filter(Appointment.id != appointment.id)
-        .filter(Appointment.status == "confirmed")
-        .filter(Appointment.start_at < new_end_at)
-        .filter(Appointment.end_at > new_start_at)
-        .first()
+    available_staff = get_available_staff_for_service(
+        db=db,
+        service=service,
+        start_at=new_start_at,
+        exclude_appointment_id=appointment.id,
     )
 
-    if conflict:
+    if not available_staff:
         return False
 
+    assigned_staff = available_staff[0]
+
+    appointment.assigned_staff_id = assigned_staff.id
     appointment.start_at = new_start_at
     appointment.end_at = new_end_at
-    appointment.notes = "Rescheduled from WhatsApp flow"
+    appointment.notes = f"Rescheduled from WhatsApp flow. Assigned staff: {assigned_staff.name}"
     db.commit()
     db.refresh(appointment)
     return True
@@ -576,7 +577,6 @@ Cancelled appointment:
         if text == "6":
             return get_upcoming_appointment_reply(db, customer)
 
-        return MAIN_MENU
 
 
 
@@ -877,6 +877,62 @@ New appointment:
             if not is_business_open_at(start_at):
                 return business_hours_message()
 
+            available_staff = get_available_staff_for_service(
+                db=db,
+                service=service,
+                start_at=start_at,
+            )
+
+            if not available_staff:
+                available, time_choices = get_available_time_choices(db, appointment_day, service)
+                context["time_choices"] = time_choices
+                save_context(db, state, context)
+                return f"Sorry, that time is already booked.\n\n{available}"
+
+            assigned_staff = available_staff[0]
+
+            context["review_start_at"] = start_at.isoformat()
+            context["review_staff_id"] = assigned_staff.id
+            context["review_staff_name"] = assigned_staff.name
+
+            state.current_step = "review_appointment"
+            save_context(db, state, context)
+
+            return f"""Review Appointment
+
+Staff: {assigned_staff.name}
+Service: {service.name}
+Date: {start_at.astimezone(BUSINESS_TZ).strftime('%A, %B %d, %Y')}
+Time: {start_at.astimezone(BUSINESS_TZ).strftime('%I:%M %p')}
+
+What would you like to do?
+
+1️⃣ Confirm Appointment
+2️⃣ Change Time
+3️⃣ Cancel Booking{business_directions_text()}"""
+
+        return time_choice_prompt(context)
+
+    if state.current_state == "booking" and state.current_step == "review_appointment":
+        context = get_context(state)
+
+        if text == "1":
+            service_id = context.get("service_id")
+            review_start_at = context.get("review_start_at")
+
+            if not service_id or not review_start_at:
+                state.current_state = "main_menu"
+                state.current_step = "awaiting_menu_choice"
+                state.context_json = "{}"
+                db.commit()
+                return "Something reset. Please reply 1 to start booking again."
+
+            service = db.get(Service, service_id)
+            start_at = datetime.fromisoformat(review_start_at)
+
+            if not service:
+                return "Service was not found. Please reply 1 to start again."
+
             appointment = create_real_appointment(
                 db=db,
                 customer=customer,
@@ -885,10 +941,12 @@ New appointment:
             )
 
             if appointment is None:
+                appointment_day = start_at.date()
                 available, time_choices = get_available_time_choices(db, appointment_day, service)
                 context["time_choices"] = time_choices
+                state.current_step = "select_time"
                 save_context(db, state, context)
-                return f"Sorry, that time is already booked.\n\n{available}"
+                return f"Sorry, that time is no longer available.\n\n{available}"
 
             state.current_state = "main_menu"
             state.current_step = "completed"
@@ -906,6 +964,39 @@ Time: {appointment.start_at.astimezone(BUSINESS_TZ).strftime('%I:%M %p')}
 
 Thank you for choosing Samina Beauty Salon.{business_directions_text()}"""
 
-        return time_choice_prompt(context)
+        if text == "2":
+            service_id = context.get("service_id")
+            appointment_date = context.get("appointment_date")
+
+            service = db.get(Service, service_id) if service_id else None
+            selected_date = datetime.fromisoformat(appointment_date).date() if appointment_date else None
+
+            if not service or not selected_date:
+                state.current_state = "main_menu"
+                state.current_step = "awaiting_menu_choice"
+                state.context_json = "{}"
+                db.commit()
+                return "Something reset. Please reply 1 to start booking again."
+
+            available, time_choices = get_available_time_choices(db, selected_date, service)
+            context["time_choices"] = time_choices
+            state.current_step = "select_time"
+            save_context(db, state, context)
+            return f"Please choose another time.\n\n{available}"
+
+        if text == "3":
+            state.current_state = "main_menu"
+            state.current_step = "awaiting_menu_choice"
+            state.context_json = "{}"
+            db.commit()
+            return "No problem — your booking was not created.\n\n" + build_main_menu(customer, is_returning=True)
+
+        return """Please choose one option:
+
+1️⃣ Confirm Appointment
+2️⃣ Change Time
+3️⃣ Cancel Booking"""
+
+
 
     return MAIN_MENU

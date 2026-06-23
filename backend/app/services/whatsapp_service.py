@@ -173,6 +173,36 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
             ],
         )
 
+    if "Before I cancel" in clean:
+        return send_whatsapp_list(
+            to_phone=to_phone,
+            header="Cancel Appointment",
+            body="Before I cancel, would you like to reschedule instead?",
+            button_text="Choose Action",
+            rows=[
+                {"id": "command_1", "title": "Reschedule Instead", "description": "Move your appointment to another time"},
+                {"id": "command_2", "title": "Confirm Cancellation", "description": "Cancel this appointment"},
+                {"id": "command_3", "title": "Keep Appointment", "description": "Do not cancel"},
+            ],
+        )
+
+
+    if "Review Appointment" in clean and "Confirm Appointment" in clean:
+        review_body = clean.split("What would you like to do?")[0].strip()
+
+        return send_whatsapp_list(
+            to_phone=to_phone,
+            header="Review Appointment",
+            body=review_body,
+            button_text="Choose Action",
+            rows=[
+                {"id": "command_1", "title": "Confirm Appointment", "description": "Book this appointment"},
+                {"id": "command_2", "title": "Change Time", "description": "Choose a different time"},
+                {"id": "command_3", "title": "Cancel Booking", "description": "Do not create this booking"},
+            ],
+        )
+
+
     if "Please choose a time" in clean or "Available times" in clean or "Available Times" in clean:
         rows = _extract_time_rows(clean)
 
