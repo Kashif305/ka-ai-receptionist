@@ -30,11 +30,11 @@ def build_main_menu(customer: Customer | None = None, is_returning: bool = False
         first_name = (customer.name or "").split()[0] or "there"
         greeting = f"""✨ Welcome back, {first_name}!
 
-Thank you for choosing Samina Beauty Salon again. My name is Samina AI Receptionist and I'm here to help."""
+Thank you for choosing Samina Beauty Salon again. My name is Samina Receptionist and I'm here to help."""
     else:
         greeting = """✨ Welcome to Samina Beauty Salon!
 
-Thank you for contacting us. My name is Samina AI Receptionist and I'm here to help."""
+Thank you for contacting us. My name is Samina Receptionist and I'm here to help."""
 
     return f"""{greeting}
 
@@ -521,7 +521,7 @@ def handle_customer_message(db: Session, customer: Customer, message_body: str) 
 
         return CANCEL_CONFIRM_MENU
 
-    if text in {"hello", "hi", "hey", "menu", "start"}:
+    if text in {"samina receptionist", "samina", "hello", "hi", "hey", "menu", "start"}:
         state.current_state = "main_menu"
         state.current_step = "awaiting_menu_choice"
         state.context_json = "{}"

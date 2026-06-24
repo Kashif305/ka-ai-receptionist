@@ -113,10 +113,16 @@ async def receive_whatsapp_webhook(
 
         print(f"WHATSAPP SAVED | customer={customer.name} | message={display_body or message_body}")
 
-        intent_result = classify_intent(message_body)
+        starter_words = {"hi", "hey", "hello", "start", "menu", "samina", "samina receptionist"}
 
-        routed_message = message_body
-        if intent_result.command != "unknown" and intent_result.confidence >= 0.65:
+        if message_body.strip().lower() in starter_words:
+            intent_result = None
+            routed_message = message_body
+        else:
+            intent_result = classify_intent(message_body)
+            routed_message = message_body
+
+        if intent_result and intent_result.command != "unknown" and intent_result.confidence >= 0.65:
             print(
                 f"AI_INTENT | message={message_body} | intent={intent_result.intent} | command={intent_result.command} | confidence={intent_result.confidence}"
             )
