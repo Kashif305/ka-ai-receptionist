@@ -1,4 +1,4 @@
-import { AppointmentsTable } from "@/components/appointments-table";
+import { AppointmentsManager } from "@/components/appointments-manager";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getDashboardAppointments } from "@/lib/dashboard-api";
 
@@ -17,7 +17,7 @@ export default async function AppointmentsPage() {
             Complete appointment records from Samina Receptionist.
           </p>
         </div>
-        <AppointmentsTable appointments={appointments} />
+        <AppointmentsManager appointments={appointments} />
       </section>
     </DashboardShell>
   );

@@ -1,4 +1,5 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -22,7 +23,11 @@ def get_available_staff_for_service(
     end_at = start_at.replace()
     end_at = start_at + service_duration(service)
 
-    local_start = start_at
+    local_start = (
+        start_at.astimezone(ZoneInfo("America/New_York"))
+        if start_at.tzinfo is not None
+        else start_at
+    )
     weekday = local_start.weekday()
     requested_start_time = local_start.time()
     requested_end_time = end_at.time()

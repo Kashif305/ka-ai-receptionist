@@ -8,7 +8,7 @@ from app.models.appointment import Appointment
 from app.models.conversation_state import ConversationState
 from app.models.customer import Customer
 from app.models.service import Service
-from app.models.staff import StaffAvailability, StaffService
+from app.models.staff import Staff, StaffAvailability, StaffService
 from app.core.config import settings
 from urllib.parse import quote_plus
 from app.services.staff_assignment_service import get_available_staff_for_service
@@ -273,8 +273,10 @@ def get_available_time_choices(
     staff_windows = (
         db.query(StaffAvailability)
         .join(StaffService, StaffService.staff_id == StaffAvailability.staff_id)
+        .join(Staff, Staff.id == StaffAvailability.staff_id)
         .filter(StaffAvailability.weekday == selected_date.weekday())
         .filter(StaffAvailability.active.is_(True))
+        .filter(Staff.active.is_(True))
         .filter(StaffService.service_id == service.id)
         .order_by(StaffAvailability.start_time.asc())
         .all()

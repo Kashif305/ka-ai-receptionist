@@ -68,6 +68,15 @@ def cancel_appointment(appointment_id: int, db: Session = Depends(get_db)):
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
 
+    if appointment.status != "confirmed":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Only confirmed appointments can be cancelled; "
+                f"this appointment is {appointment.status}."
+            ),
+        )
+
     appointment.status = "cancelled"
     db.commit()
     db.refresh(appointment)
@@ -80,13 +89,14 @@ def owner_cancel_appointment(appointment_id: int, db: Session = Depends(get_db))
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
 
-    if appointment.status == "cancelled":
-        return {
-            "message": "Appointment was already cancelled.",
-            "appointment_id": appointment.id,
-            "status": appointment.status,
-            "notification_sent": False,
-        }
+    if appointment.status != "confirmed":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Only confirmed appointments can be cancelled; "
+                f"this appointment is {appointment.status}."
+            ),
+        )
 
     customer = db.get(Customer, appointment.customer_id)
     appointment.status = "cancelled"

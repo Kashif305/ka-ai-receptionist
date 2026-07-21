@@ -21,6 +21,10 @@ export function formatTime(value: string) {
   return timeFormatter.format(new Date(value));
 }
 
+export function formatDateTime(value: string) {
+  return `${formatDate(value)} at ${formatTime(value)}`;
+}
+
 export function formatTimeRange(startTime: string, endTime: string) {
   return `${formatLocalTime(startTime)}–${formatLocalTime(endTime)}`;
 }

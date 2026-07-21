@@ -18,6 +18,38 @@ export type DashboardAppointment = {
   notes: string | null;
 };
 
+export type AppointmentDetail = {
+  id: number;
+  customer_id: number;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string | null;
+  service_id: number;
+  service_name: string;
+  service_duration_minutes: number;
+  assigned_staff_id: number | null;
+  assigned_staff_name: string | null;
+  start_at: string;
+  end_at: string;
+  status: string;
+  source: string;
+  notes: string | null;
+  created_at: string;
+};
+
+export type AppointmentSlot = {
+  start_at: string;
+  end_at: string;
+  available_staff: Array<{ id: number; name: string }>;
+};
+
+export type AppointmentAvailability = {
+  date: string;
+  service_id: number;
+  service_duration_minutes: number;
+  slots: AppointmentSlot[];
+};
+
 export type DashboardCustomer = {
   id: number;
   name: string;
