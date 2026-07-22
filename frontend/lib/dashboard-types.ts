@@ -122,3 +122,29 @@ export type StaffInput = {
   service_ids: number[];
   availability: StaffAvailabilityInput[];
 };
+
+export type BusinessHour = {
+  id: number;
+  weekday: number;
+  is_open: boolean;
+  open_time: string | null;
+  close_time: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BusinessHourInput = Omit<BusinessHour, "id" | "created_at" | "updated_at">;
+
+export type BusinessClosure = {
+  id: number;
+  start_date: string;
+  end_date: string;
+  reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BusinessClosureInput = Pick<
+  BusinessClosure,
+  "start_date" | "end_date" | "reason"
+>;

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AppointmentCreate(BaseModel):
@@ -10,6 +10,19 @@ class AppointmentCreate(BaseModel):
     end_at: datetime
     source: str = "manual"
     notes: str | None = None
+
+    @field_validator("start_at", "end_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Appointment times must include a timezone offset")
+        return value
+
+    @model_validator(mode="after")
+    def validate_interval(self):
+        if self.end_at <= self.start_at:
+            raise ValueError("end_at must be later than start_at")
+        return self
 
 
 class AppointmentRead(BaseModel):

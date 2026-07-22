@@ -12,6 +12,12 @@ from app.models.staff import Staff, StaffAvailability, StaffService
 from app.core.config import settings
 from urllib.parse import quote_plus
 from app.services.staff_assignment_service import get_available_staff_for_service
+from app.services.business_hours_service import (
+    BusinessHoursError,
+    is_business_open_for_interval,
+    list_effective_open_intervals,
+    validate_interval_within_business_hours,
+)
 
 
 BUSINESS_TZ = ZoneInfo("America/New_York")
@@ -105,28 +111,6 @@ def build_service_menu(db: Session) -> tuple[str, dict[str, int]]:
         f"What service would you like?\n\n{options}",
         choices,
     )
-
-
-BUSINESS_OPEN_HOUR = 12
-BUSINESS_CLOSE_HOUR = 21
-CLOSED_WEEKDAYS = set()  # Dev QA: allow all weekdays
-
-
-def is_business_open_at(start_at: datetime) -> bool:
-    local_dt = start_at.astimezone(BUSINESS_TZ)
-
-    if local_dt.weekday() in CLOSED_WEEKDAYS:
-        return False
-
-    return BUSINESS_OPEN_HOUR <= local_dt.hour < BUSINESS_CLOSE_HOUR
-
-
-def business_hours_message() -> str:
-    return """Sorry, we are closed at that time.
-
-Business hours:
-Tuesday–Sunday: 12:00 PM – 9:00 PM
-Monday: Closed"""
 
 
 TIME_MAP = {
@@ -259,6 +243,12 @@ def get_available_time_choices(
         ↓
     available customer time choices
     """
+    if not list_effective_open_intervals(db, selected_date):
+        return (
+            "No appointment slots are available because the business is closed that day.\n\nPlease choose another date or type menu to start over.",
+            {},
+        )
+
     staff_windows = (
         db.query(StaffAvailability)
         .join(StaffService, StaffService.staff_id == StaffAvailability.staff_id)
@@ -299,6 +289,9 @@ def get_available_time_choices(
             slot_time,
             tzinfo=BUSINESS_TZ,
         )
+
+        if not is_business_open_for_interval(db, start_at, start_at + service_duration):
+            continue
 
         available_staff = get_available_staff_for_service(
             db=db,
@@ -740,8 +733,14 @@ Current appointment:
                 tzinfo=BUSINESS_TZ,
             )
 
-            if not is_business_open_at(new_start_at):
-                return business_hours_message()
+            try:
+                validate_interval_within_business_hours(
+                    db,
+                    new_start_at,
+                    new_start_at + timedelta(minutes=appointment.service.duration_minutes),
+                )
+            except BusinessHoursError as exc:
+                return str(exc)
 
             ok = reschedule_appointment(db, appointment, new_start_at)
 
@@ -881,8 +880,12 @@ New appointment:
                 tzinfo=BUSINESS_TZ,
             )
 
-            if not is_business_open_at(start_at):
-                return business_hours_message()
+            try:
+                validate_interval_within_business_hours(
+                    db, start_at, start_at + timedelta(minutes=service.duration_minutes)
+                )
+            except BusinessHoursError as exc:
+                return str(exc)
 
             available_staff = get_available_staff_for_service(
                 db=db,

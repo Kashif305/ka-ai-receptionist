@@ -19,6 +19,12 @@ from app.services.staff_assignment_service import (
     get_available_staff_for_service,
     service_duration,
 )
+from app.services.business_hours_service import (
+    BusinessHoursError,
+    is_business_open_for_interval,
+    list_effective_open_intervals,
+    validate_interval_within_business_hours,
+)
 
 
 router = APIRouter(prefix="/dashboard/appointments", tags=["dashboard-appointments"])
@@ -160,6 +166,13 @@ def reschedule_appointment(
     if payload.staff_id is not None:
         _validate_selected_staff(db, payload.staff_id, appointment.service_id)
 
+    try:
+        validate_interval_within_business_hours(
+            db, start_at, start_at + service_duration(appointment.service)
+        )
+    except BusinessHoursError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
     available_staff = get_available_staff_for_service(
         db,
         appointment.service,
@@ -226,6 +239,15 @@ def appointment_availability(
     if staff_id is not None:
         _validate_selected_staff(db, staff_id, service.id)
 
+    business_intervals = list_effective_open_intervals(db, selected_date)
+    if not business_intervals:
+        return {
+            "date": selected_date,
+            "service_id": service.id,
+            "service_duration_minutes": service.duration_minutes,
+            "slots": [],
+        }
+
     windows_query = (
         db.query(StaffAvailability)
         .join(Staff, Staff.id == StaffAvailability.staff_id)
@@ -245,7 +267,10 @@ def appointment_availability(
         cursor = datetime.combine(selected_date, window.start_time, BUSINESS_TIMEZONE)
         window_end = datetime.combine(selected_date, window.end_time, BUSINESS_TIMEZONE)
         while cursor + duration <= window_end:
-            if cursor.astimezone(timezone.utc) > datetime.now(timezone.utc):
+            if (
+                cursor.astimezone(timezone.utc) > datetime.now(timezone.utc)
+                and is_business_open_for_interval(db, cursor, cursor + duration)
+            ):
                 starts.add(cursor)
             cursor += timedelta(minutes=window.slot_duration_minutes)
 

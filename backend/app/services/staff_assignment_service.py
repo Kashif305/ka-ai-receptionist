@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.appointment import Appointment
 from app.models.service import Service
 from app.models.staff import Staff, StaffAvailability, StaffService
+from app.services.business_hours_service import is_business_open_for_interval
 
 
 def get_available_staff_for_service(
@@ -23,6 +24,9 @@ def get_available_staff_for_service(
     end_at = start_at.replace()
     end_at = start_at + service_duration(service)
 
+    if not service.active or not is_business_open_for_interval(db, start_at, end_at):
+        return []
+
     local_start = (
         start_at.astimezone(ZoneInfo("America/New_York"))
         if start_at.tzinfo is not None
@@ -30,7 +34,14 @@ def get_available_staff_for_service(
     )
     weekday = local_start.weekday()
     requested_start_time = local_start.time()
-    requested_end_time = end_at.time()
+    local_end = (
+        end_at.astimezone(ZoneInfo("America/New_York"))
+        if end_at.tzinfo is not None
+        else end_at
+    )
+    if local_start.date() != local_end.date():
+        return []
+    requested_end_time = local_end.time()
 
     qualified_staff = (
         db.query(Staff)

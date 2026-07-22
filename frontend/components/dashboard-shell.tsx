@@ -7,6 +7,7 @@ const navigation = [
   { href: "/customers", label: "Customers", icon: "♙" },
   { href: "/staff", label: "Staff", icon: "♢" },
   { href: "/services", label: "Services", icon: "✦" },
+  { href: "/business-hours", label: "Business Hours", icon: "◴" },
 ];
 
 type DashboardShellProps = {

@@ -4,6 +4,8 @@ import type {
   DashboardStaff,
   DashboardSummary,
   ServiceOption,
+  BusinessClosure,
+  BusinessHour,
 } from "@/lib/dashboard-types";
 
 const API_BASE_URL = (
@@ -49,4 +51,12 @@ export function getServices() {
 
 export function getDashboardServices() {
   return dashboardFetch<ServiceOption[]>("/dashboard/services");
+}
+
+export function getBusinessHours() {
+  return dashboardFetch<BusinessHour[]>("/dashboard/business-hours");
+}
+
+export function getBusinessClosures() {
+  return dashboardFetch<BusinessClosure[]>("/dashboard/business-closures");
 }

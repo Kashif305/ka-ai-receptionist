@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,7 +10,12 @@ from app.models.appointment import Appointment
 from app.models.customer import Customer
 from app.models.service import Service
 from app.schemas.appointment import AppointmentCreate, AppointmentRead
+from app.services.business_hours_service import (
+    BusinessHoursError,
+    validate_interval_within_business_hours,
+)
 from app.services.whatsapp_service import send_whatsapp_text
+from app.services.staff_assignment_service import get_available_staff_for_service
 
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
@@ -28,19 +33,29 @@ def create_appointment(payload: AppointmentCreate, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Service not found")
     if not service.active:
         raise HTTPException(status_code=409, detail="Service is inactive")
+    expected_end = payload.start_at + timedelta(minutes=service.duration_minutes)
+    if payload.end_at != expected_end:
+        raise HTTPException(
+            status_code=422,
+            detail="Appointment interval must match the service duration",
+        )
 
-    conflict = (
-        db.query(Appointment)
-        .filter(Appointment.status == "confirmed")
-        .filter(Appointment.start_at < payload.end_at)
-        .filter(Appointment.end_at > payload.start_at)
-        .first()
+    try:
+        validate_interval_within_business_hours(db, payload.start_at, payload.end_at)
+    except BusinessHoursError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    available_staff = get_available_staff_for_service(db, service, payload.start_at)
+    if not available_staff:
+        raise HTTPException(
+            status_code=409,
+            detail="No eligible staff member is available at that time",
+        )
+
+    appointment = Appointment(
+        **payload.model_dump(),
+        assigned_staff_id=available_staff[0].id,
     )
-
-    if conflict:
-        raise HTTPException(status_code=409, detail="Time slot already booked")
-
-    appointment = Appointment(**payload.model_dump())
     db.add(appointment)
     db.commit()
     db.refresh(appointment)
