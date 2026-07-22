@@ -46,15 +46,6 @@ How may I assist you today?
 MAIN_MENU = build_main_menu()
 
 
-SERVICE_MENU = """Great — let's book your appointment.
-
-What service would you like?
-
-1️⃣ Eyebrow Threading
-2️⃣ Facial
-3️⃣ Haircut
-"""
-
 DATE_MENU = """Perfect.
 
 When would you like to come in?
@@ -92,11 +83,28 @@ CANCEL_CONFIRM_MENU = """Before I cancel, would you like to reschedule instead?
 STAFF_REPLY = "No problem. A staff member will follow up with you soon."
 
 
-SERVICE_MAP = {
-    "1": {"name": "Eyebrow Threading", "duration": 20, "price": 12.00},
-    "2": {"name": "Facial", "duration": 60, "price": 65.00},
-    "3": {"name": "Haircut", "duration": 30, "price": 25.00},
-}
+def build_service_menu(db: Session) -> tuple[str, dict[str, int]]:
+    services = (
+        db.query(Service)
+        .filter(Service.active.is_(True))
+        .order_by(Service.name.asc())
+        .all()
+    )
+    if not services:
+        return (
+            "We do not have any services available for booking right now. "
+            "Please choose Speak With Staff for help.",
+            {},
+        )
+    choices = {str(index): service.id for index, service in enumerate(services, 1)}
+    options = "\n".join(
+        f"{index}. {service.name}" for index, service in enumerate(services, 1)
+    )
+    return (
+        "Great — let's book your appointment.\n\n"
+        f"What service would you like?\n\n{options}",
+        choices,
+    )
 
 
 BUSINESS_OPEN_HOUR = 12
@@ -182,25 +190,6 @@ def get_context(state: ConversationState) -> dict:
 def save_context(db: Session, state: ConversationState, context: dict) -> None:
     state.context_json = json.dumps(context)
     db.commit()
-
-
-def get_or_create_service(db: Session, service_name: str, duration: int, price: float) -> Service:
-    service = db.query(Service).filter(Service.name == service_name).first()
-
-    if service:
-        return service
-
-    service = Service(
-        name=service_name,
-        description=f"{service_name} service",
-        duration_minutes=duration,
-        price=price,
-        active=True,
-    )
-    db.add(service)
-    db.commit()
-    db.refresh(service)
-    return service
 
 
 def create_real_appointment(
@@ -532,11 +521,13 @@ def handle_customer_message(db: Session, customer: Customer, message_body: str) 
 
     if state.current_state == "main_menu" or state.current_step == "awaiting_menu_choice":
         if text == "1":
+            service_menu, service_choices = build_service_menu(db)
+            if not service_choices:
+                return service_menu
             state.current_state = "booking"
             state.current_step = "select_service"
-            state.context_json = "{}"
-            db.commit()
-            return SERVICE_MENU
+            save_context(db, state, {"service_choices": service_choices})
+            return service_menu
 
         if text == "2":
             appointment = get_next_confirmed_appointment(db, customer)
@@ -779,14 +770,10 @@ New appointment:
 
 
     if state.current_state == "booking" and state.current_step == "select_service":
-        if text in SERVICE_MAP:
-            selected = SERVICE_MAP[text]
-            service = get_or_create_service(
-                db,
-                selected["name"],
-                selected["duration"],
-                selected["price"],
-            )
+        context = get_context(state)
+        service_id = context.get("service_choices", {}).get(text)
+        service = db.get(Service, service_id) if service_id else None
+        if service and service.active:
 
             date_menu, date_choices = build_booking_date_choices()
 
@@ -801,7 +788,9 @@ New appointment:
             save_context(db, state, context)
             return date_menu
 
-        return SERVICE_MENU
+        service_menu, service_choices = build_service_menu(db)
+        save_context(db, state, {"service_choices": service_choices})
+        return service_menu
 
     if state.current_state == "booking" and state.current_step == "select_date":
         context = get_context(state)
@@ -822,7 +811,7 @@ New appointment:
         selected_date = datetime.fromisoformat(selected_value).date()
 
         service = db.get(Service, context.get("service_id"))
-        if not service:
+        if not service or not service.active:
             return "Service was not found. Please reply 1 to start again."
 
         available, time_choices = get_available_time_choices(db, selected_date, service)
@@ -852,7 +841,7 @@ New appointment:
 
         context = get_context(state)
         service = db.get(Service, context.get("service_id"))
-        if not service:
+        if not service or not service.active:
             return "Service was not found. Please reply 1 to start again."
 
         available, time_choices = get_available_time_choices(db, selected_date, service)
@@ -881,7 +870,7 @@ New appointment:
                 return "Something reset. Please reply 1 to start booking again."
 
             service = db.get(Service, service_id)
-            if not service:
+            if not service or not service.active:
                 return "Service was not found. Please reply 1 to start again."
 
             appointment_day = datetime.fromisoformat(appointment_date).date()
@@ -948,7 +937,7 @@ What would you like to do?
             service = db.get(Service, service_id)
             start_at = datetime.fromisoformat(review_start_at)
 
-            if not service:
+            if not service or not service.active:
                 return "Service was not found. Please reply 1 to start again."
 
             appointment = create_real_appointment(

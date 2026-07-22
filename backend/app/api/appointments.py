@@ -26,6 +26,8 @@ def create_appointment(payload: AppointmentCreate, db: Session = Depends(get_db)
     service = db.get(Service, payload.service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
+    if not service.active:
+        raise HTTPException(status_code=409, detail="Service is inactive")
 
     conflict = (
         db.query(Appointment)

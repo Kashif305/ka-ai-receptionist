@@ -46,3 +46,7 @@ export function getDashboardStaff() {
 export function getServices() {
   return dashboardFetch<ServiceOption[]>("/services");
 }
+
+export function getDashboardServices() {
+  return dashboardFetch<ServiceOption[]>("/dashboard/services");
+}

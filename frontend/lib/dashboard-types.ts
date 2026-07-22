@@ -98,6 +98,14 @@ export type ServiceOption = {
   created_at: string;
 };
 
+export type ServiceInput = {
+  name: string;
+  description: string | null;
+  duration_minutes: number;
+  price: number;
+  active: boolean;
+};
+
 export type StaffAvailabilityInput = {
   weekday: number;
   start_time: string;
