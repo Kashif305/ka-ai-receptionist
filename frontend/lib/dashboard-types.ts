@@ -148,3 +148,52 @@ export type BusinessClosureInput = Pick<
   BusinessClosure,
   "start_date" | "end_date" | "reason"
 >;
+
+export type ConversationStatus =
+  | "active"
+  | "waiting"
+  | "booked"
+  | "completed"
+  | "cancelled";
+
+export type DashboardConversation = {
+  id: number;
+  customer_name: string | null;
+  customer_phone: string;
+  last_message_preview: string | null;
+  last_activity_at: string;
+  status: ConversationStatus;
+  appointment_id: number | null;
+  ai_summary: string | null;
+  unread: boolean;
+};
+
+export type ConversationAppointment = {
+  id: number;
+  service_name: string;
+  staff_name: string | null;
+  start_at: string;
+  end_at: string;
+  status: string;
+};
+
+export type ConversationDetail = {
+  id: number;
+  customer: { id: number; name: string | null; phone: string; email: string | null };
+  status: ConversationStatus;
+  created_at: string;
+  last_activity_at: string;
+  ai_summary: string | null;
+  appointment: ConversationAppointment | null;
+  internal_notes: string | null;
+  unread: boolean;
+};
+
+export type ConversationMessage = {
+  id: number;
+  sender: string;
+  body: string;
+  timestamp: string;
+  direction: "incoming" | "outgoing";
+  delivery_status: string | null;
+};

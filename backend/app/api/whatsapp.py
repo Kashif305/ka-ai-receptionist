@@ -146,11 +146,15 @@ async def receive_whatsapp_webhook(
         owner_reply = get_owner_summary_reply(db, phone, message_body)
         if owner_reply:
             send_whatsapp_smart_response(phone, owner_reply)
+            db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=owner_reply))
+            db.commit()
             return {"status": "owner_summary_sent"}
 
         auto_reply = handle_customer_message(db, customer, routed_message)
 
         send_whatsapp_smart_response(phone, auto_reply)
+        db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=auto_reply))
+        db.commit()
 
     except Exception as exc:
         print("WEBHOOK PARSE ERROR:", exc)

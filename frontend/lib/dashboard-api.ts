@@ -6,6 +6,7 @@ import type {
   ServiceOption,
   BusinessClosure,
   BusinessHour,
+  DashboardConversation,
 } from "@/lib/dashboard-types";
 
 const API_BASE_URL = (
@@ -59,4 +60,8 @@ export function getBusinessHours() {
 
 export function getBusinessClosures() {
   return dashboardFetch<BusinessClosure[]>("/dashboard/business-closures");
+}
+
+export function getDashboardConversations() {
+  return dashboardFetch<DashboardConversation[]>("/dashboard/conversations");
 }

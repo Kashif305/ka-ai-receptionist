@@ -1,6 +1,6 @@
 from datetime import datetime, time
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DashboardSummary(BaseModel):
@@ -59,3 +59,61 @@ class DashboardStaff(BaseModel):
     availability: list[DashboardStaffAvailability]
     upcoming_appointment_count: int
     today_appointment_count: int
+
+
+class DashboardConversationListItem(BaseModel):
+    id: int
+    customer_name: str | None
+    customer_phone: str
+    last_message_preview: str | None
+    last_activity_at: datetime
+    status: str
+    appointment_id: int | None
+    ai_summary: str | None
+    unread: bool
+
+
+class DashboardConversationCustomer(BaseModel):
+    id: int
+    name: str | None
+    phone: str
+    email: str | None
+
+
+class DashboardConversationAppointment(BaseModel):
+    id: int
+    service_name: str
+    staff_name: str | None
+    start_at: datetime
+    end_at: datetime
+    status: str
+
+
+class DashboardConversationDetail(BaseModel):
+    id: int
+    customer: DashboardConversationCustomer
+    status: str
+    created_at: datetime
+    last_activity_at: datetime
+    ai_summary: str | None
+    appointment: DashboardConversationAppointment | None
+    internal_notes: str | None
+    unread: bool
+
+
+class DashboardConversationMessage(BaseModel):
+    id: int
+    sender: str
+    body: str
+    timestamp: datetime
+    direction: str
+    delivery_status: str | None
+
+
+class DashboardConversationNotesUpdate(BaseModel):
+    notes: str = Field(max_length=5000)
+
+
+class DashboardConversationNotes(BaseModel):
+    conversation_id: int
+    notes: str | None
