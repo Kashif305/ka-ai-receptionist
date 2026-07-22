@@ -1,0 +1,2 @@
+"use client";
+export default function ErrorPage({ reset }: { reset: () => void }) { return <div className="m-8 rounded-2xl border border-red-200 bg-red-50 p-8 text-center"><h2 className="font-bold text-red-900">Unable to load clients</h2><p className="mt-1 text-sm text-red-700">Check the dashboard API connection and try again.</p><button onClick={reset} className="mt-4 rounded-xl bg-red-900 px-4 py-2 text-white">Try again</button></div>; }

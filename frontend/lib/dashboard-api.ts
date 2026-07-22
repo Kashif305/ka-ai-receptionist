@@ -7,6 +7,8 @@ import type {
   BusinessClosure,
   BusinessHour,
   DashboardConversation,
+  DashboardClient,
+  ClientDetail,
 } from "@/lib/dashboard-types";
 
 const API_BASE_URL = (
@@ -64,4 +66,14 @@ export function getBusinessClosures() {
 
 export function getDashboardConversations() {
   return dashboardFetch<DashboardConversation[]>("/dashboard/conversations");
+}
+
+export function getDashboardClients(search = "", status = "all") {
+  const query = new URLSearchParams({ status });
+  if (search) query.set("search", search);
+  return dashboardFetch<DashboardClient[]>(`/dashboard/clients?${query}`);
+}
+
+export function getDashboardClient(clientId: number) {
+  return dashboardFetch<ClientDetail>(`/dashboard/clients/${clientId}`);
 }

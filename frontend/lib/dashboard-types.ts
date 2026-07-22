@@ -61,6 +61,23 @@ export type DashboardCustomer = {
   created_at: string;
 };
 
+export type ClientAppointment = { id: number; service: string; staff: string | null; start_at: string; end_at: string; status: string };
+export type DashboardClient = {
+  id: number; name: string; phone: string; email: string | null; is_active: boolean;
+  marketing_opt_in: boolean; last_activity_at: string | null;
+  last_appointment: ClientAppointment | null; total_appointment_count: number;
+};
+export type ClientConversation = { id: number; last_message: string | null; last_activity_at: string; message_count: number };
+export type ClientDetail = DashboardClient & {
+  birthday: string | null; notes: string | null; created_at: string; updated_at: string;
+  marketing_opt_in_at: string | null; marketing_opt_in_source: string | null; marketing_opt_out_at: string | null;
+  upcoming_appointment: ClientAppointment | null; appointments: ClientAppointment[]; conversations: ClientConversation[];
+};
+export type ClientInput = {
+  name: string; phone: string; email: string | null; birthday: string | null; notes: string | null;
+  is_active: boolean; marketing_opt_in: boolean; marketing_opt_in_source: string | null;
+};
+
 export type DashboardStaffService = {
   id: number;
   name: string;

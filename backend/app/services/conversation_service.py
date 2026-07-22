@@ -18,6 +18,7 @@ from app.services.business_hours_service import (
     list_effective_open_intervals,
     validate_interval_within_business_hours,
 )
+from app.services.client_service import get_or_create_client, touch_client
 
 
 BUSINESS_TZ = ZoneInfo("America/New_York")
@@ -143,15 +144,21 @@ Directions:
 
 
 def get_or_create_state(db: Session, customer: Customer) -> ConversationState:
+    client, _ = get_or_create_client(db, customer.phone, customer.name)
+    touch_client(db, client)
     state = db.query(ConversationState).filter(
         ConversationState.customer_id == customer.id
     ).first()
 
     if state:
+        if state.client_id != client.id:
+            state.client_id = client.id
+            db.commit()
         return state
 
     state = ConversationState(
         customer_id=customer.id,
+        client_id=client.id,
         current_state="main_menu",
         current_step="start",
         context_json="{}",
@@ -195,8 +202,11 @@ def create_real_appointment(
 
     assigned_staff = available_staff[0]
 
+    client, _ = get_or_create_client(db, customer.phone, customer.name)
+    touch_client(db, client, start_at)
     appointment = Appointment(
         customer_id=customer.id,
+        client_id=client.id,
         service_id=service.id,
         assigned_staff_id=assigned_staff.id,
         start_at=start_at,

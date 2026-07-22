@@ -11,6 +11,7 @@ class ConversationState(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), unique=True, index=True)
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id"), nullable=True, index=True)
 
     current_state: Mapped[str] = mapped_column(String(50), default="main_menu")
     current_step: Mapped[str] = mapped_column(String(50), default="start")
@@ -19,3 +20,4 @@ class ConversationState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     customer = relationship("Customer")
+    client = relationship("Client", back_populates="conversations")

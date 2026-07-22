@@ -16,6 +16,7 @@ from app.services.business_hours_service import (
 )
 from app.services.whatsapp_service import send_whatsapp_text
 from app.services.staff_assignment_service import get_available_staff_for_service
+from app.services.client_service import get_or_create_client, touch_client
 
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
@@ -52,8 +53,11 @@ def create_appointment(payload: AppointmentCreate, db: Session = Depends(get_db)
             detail="No eligible staff member is available at that time",
         )
 
+    client, _ = get_or_create_client(db, customer.phone, customer.name)
+    touch_client(db, client, payload.start_at)
     appointment = Appointment(
         **payload.model_dump(),
+        client_id=client.id,
         assigned_staff_id=available_staff[0].id,
     )
     db.add(appointment)

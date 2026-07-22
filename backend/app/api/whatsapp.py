@@ -11,6 +11,7 @@ from app.services.ai_intent_service import classify_intent
 from app.services.conversation_service import handle_customer_message
 from app.services.owner_summary_service import get_owner_summary_reply
 from app.services.whatsapp_service import send_whatsapp_smart_response
+from app.services.client_service import get_or_create_client, normalize_phone, touch_client
 
 
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["whatsapp"])
@@ -84,7 +85,7 @@ async def receive_whatsapp_webhook(
         if not message_body:
             return {"status": "ignored_non_supported_message"}
 
-        phone = contact["wa_id"]
+        phone = normalize_phone(contact["wa_id"])
         customer_name = contact["profile"]["name"]
 
         customer = db.query(Customer).filter(Customer.phone == phone).first()
@@ -100,6 +101,9 @@ async def receive_whatsapp_webhook(
             db.commit()
             db.refresh(customer)
 
+        client, _ = get_or_create_client(db, phone, customer_name)
+        touch_client(db, client)
+
         new_message = Message(
             customer_id=customer.id,
             channel="whatsapp",
@@ -109,6 +113,9 @@ async def receive_whatsapp_webhook(
         )
 
         db.add(new_message)
+        state = db.query(ConversationState).filter(ConversationState.customer_id == customer.id).first()
+        if state:
+            state.client_id = client.id
         db.commit()
 
         print(f"WHATSAPP SAVED | customer={customer.name} | message={display_body or message_body}")

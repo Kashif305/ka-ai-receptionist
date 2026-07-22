@@ -5,7 +5,7 @@ const navigation = [
   { href: "/", label: "Overview", icon: "⌂" },
   { href: "/appointments", label: "Appointments", icon: "◷" },
   { href: "/conversation-center", label: "Conversation Center", icon: "◌" },
-  { href: "/customers", label: "Customers", icon: "♙" },
+  { href: "/clients", label: "Clients", icon: "♙" },
   { href: "/staff", label: "Staff", icon: "♢" },
   { href: "/services", label: "Services", icon: "✦" },
   { href: "/business-hours", label: "Business Hours", icon: "◴" },

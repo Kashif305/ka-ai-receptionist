@@ -11,6 +11,7 @@ class Appointment(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id"), nullable=True, index=True)
     service_id: Mapped[int] = mapped_column(ForeignKey("services.id"), index=True)
     assigned_staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id"), nullable=True, index=True)
 
@@ -24,5 +25,6 @@ class Appointment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     customer = relationship("Customer", back_populates="appointments")
+    client = relationship("Client", back_populates="appointments")
     service = relationship("Service", back_populates="appointments")
     assigned_staff = relationship("Staff", back_populates="appointments")
