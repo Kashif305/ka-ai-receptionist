@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     whatsapp_access_token: str | None = None
     whatsapp_verify_token: str = "ka_ai_receptionist_verify"
     whatsapp_request_timeout_seconds: float = 30.0
+    ka_qa_outbound_suppression_enabled: bool = False
 
     promotion_media_directory: str = "var/promotion_media"
     promotion_media_url_prefix: str = "/media/promotions"

@@ -12,7 +12,10 @@ from app.models.message import Message
 from app.services.ai_intent_service import classify_intent
 from app.services.conversation_service import handle_customer_message
 from app.services.owner_summary_service import get_owner_summary_reply
-from app.services.whatsapp_service import send_whatsapp_smart_response
+from app.services.whatsapp_service import (
+    qa_outbound_suppression_allowed,
+    send_whatsapp_smart_response,
+)
 from app.services.client_service import get_or_create_client, normalize_phone, touch_client
 from app.services.promotion_service import mark_recent_campaign_reply, update_delivery_status
 from app.services.marketing_consent_service import (
@@ -105,12 +108,37 @@ def normalize_incoming_message(message: dict) -> tuple[str | None, str | None]:
     return None, None
 
 
-@router.post("")
+@router.post(
+    "",
+    openapi_extra={
+        "x-ka-qa-outbound-suppressed": {
+            "header": "X-KA-QA-Suppress-Outbound",
+            "value": "true",
+            "requires_non_production": True,
+            "requires_config": "KA_QA_OUTBOUND_SUPPRESSION_ENABLED",
+            "response_field": "qa_outbound_suppressed",
+        }
+    },
+)
 async def receive_whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
     payload = await request.json()
+    suppression_requested = (
+        getattr(request, "headers", {}).get("X-KA-QA-Suppress-Outbound", "").strip().casefold()
+        == "true"
+    )
+    suppress_outbound = qa_outbound_suppression_allowed(suppression_requested)
+    outbound_suppressed = False
+
+    def send_response(phone: str, body: str):
+        nonlocal outbound_suppressed
+        send_whatsapp_smart_response(phone, body, suppress_outbound=suppress_outbound)
+        outbound_suppressed = suppress_outbound
+
+    def outbound_response(status: str, **extra):
+        return {"status": status, "qa_outbound_suppressed": outbound_suppressed, **extra}
 
     try:
         entry = payload["entry"][0]
@@ -181,10 +209,10 @@ async def receive_whatsapp_webhook(
             if is_awaiting_consent(state):
                 clear_consent_wait(state)
             confirmation = "You have been unsubscribed from promotional offers. You can still use this chat for appointments."
-            send_whatsapp_smart_response(phone, confirmation)
+            send_response(phone, confirmation)
             db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=confirmation))
             db.commit()
-            return {"status": "marketing_opt_out_confirmed"}
+            return outbound_response("marketing_opt_out_confirmed")
 
         if is_awaiting_consent(state):
             decision = consent_reply(message_body)
@@ -196,10 +224,10 @@ async def receive_whatsapp_webhook(
                     if decision
                     else "No problem — you won't receive promotional offers."
                 )
-                send_whatsapp_smart_response(phone, confirmation)
+                send_response(phone, confirmation)
                 db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=confirmation))
                 db.commit()
-                return {"status": "marketing_consent_recorded", "marketing_opt_in": decision}
+                return outbound_response("marketing_consent_recorded", marketing_opt_in=decision)
 
             # A non-consent reply resumes normal transactional handling and is
             # never coerced into a marketing decision.
@@ -238,10 +266,10 @@ async def receive_whatsapp_webhook(
 
         owner_reply = get_owner_summary_reply(db, phone, message_body)
         if owner_reply:
-            send_whatsapp_smart_response(phone, owner_reply)
+            send_response(phone, owner_reply)
             db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=owner_reply))
             db.commit()
-            return {"status": "owner_summary_sent"}
+            return outbound_response("owner_summary_sent")
 
         auto_reply = handle_customer_message(db, customer, routed_message)
 
@@ -253,11 +281,11 @@ async def receive_whatsapp_webhook(
             begin_consent_prompt(client, state)
             auto_reply = f"{auto_reply}\n\n{CONSENT_PROMPT}"
 
-        send_whatsapp_smart_response(phone, auto_reply)
+        send_response(phone, auto_reply)
         db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=auto_reply))
         db.commit()
 
     except Exception as exc:
         print("WEBHOOK PARSE ERROR:", exc)
 
-    return {"status": "received"}
+    return outbound_response("received")

@@ -6,7 +6,22 @@ import requests
 from app.core.config import settings
 
 
-def _send_whatsapp_payload(payload: dict[str, Any]):
+QA_SUPPRESSION_ENVIRONMENTS = {"local", "development", "dev", "test", "testing", "staging"}
+
+
+def qa_outbound_suppression_allowed(requested: bool) -> bool:
+    return (
+        requested
+        and settings.ka_qa_outbound_suppression_enabled
+        and settings.app_env.strip().casefold() in QA_SUPPRESSION_ENVIRONMENTS
+    )
+
+
+def _send_whatsapp_payload(payload: dict[str, Any], *, suppress_outbound: bool = False):
+    if qa_outbound_suppression_allowed(suppress_outbound):
+        print("KA_QA_WHATSAPP_OUTBOUND_SUPPRESSED")
+        return None
+
     url = f"https://graph.facebook.com/v23.0/{settings.whatsapp_phone_number_id}/messages"
 
     headers = {
@@ -22,7 +37,7 @@ def _send_whatsapp_payload(payload: dict[str, Any]):
     return response
 
 
-def send_whatsapp_text(to_phone: str, message: str):
+def send_whatsapp_text(to_phone: str, message: str, *, suppress_outbound: bool = False):
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -34,7 +49,7 @@ def send_whatsapp_text(to_phone: str, message: str):
         },
     }
 
-    return _send_whatsapp_payload(payload)
+    return _send_whatsapp_payload(payload, suppress_outbound=suppress_outbound)
 
 
 def send_whatsapp_list(
@@ -43,6 +58,8 @@ def send_whatsapp_list(
     button_text: str,
     rows: list[dict[str, str]],
     header: str = "KA AI Receptionist",
+    *,
+    suppress_outbound: bool = False,
 ):
     payload = {
         "messaging_product": "whatsapp",
@@ -70,7 +87,7 @@ def send_whatsapp_list(
         },
     }
 
-    return _send_whatsapp_payload(payload)
+    return _send_whatsapp_payload(payload, suppress_outbound=suppress_outbound)
 
 
 def _extract_time_rows(message: str) -> list[dict[str, str]]:
@@ -115,7 +132,7 @@ def _extract_date_rows(message: str) -> list[dict[str, str]]:
     return rows
 
 
-def send_whatsapp_smart_response(to_phone: str, message: str):
+def send_whatsapp_smart_response(to_phone: str, message: str, *, suppress_outbound: bool = False):
     clean = message.strip()
 
     if "How may I assist you today?" in clean:
@@ -132,6 +149,7 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
                 {"id": "command_5", "title": "Speak With Staff", "description": "Request human help"},
                 {"id": "command_6", "title": "My Appointment", "description": "View your next appointment"},
             ],
+            suppress_outbound=suppress_outbound,
         )
 
     if "What service would you like?" in clean:
@@ -145,6 +163,7 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
                 {"id": "command_2", "title": "Facial", "description": "60 minutes"},
                 {"id": "command_3", "title": "Haircut", "description": "30 minutes"},
             ],
+            suppress_outbound=suppress_outbound,
         )
 
     if "Available dates:" in clean:
@@ -157,6 +176,7 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
                 body=clean.split("Available dates:")[0].strip() or "Please choose an available appointment date.",
                 button_text="Select Date",
                 rows=rows,
+                suppress_outbound=suppress_outbound,
             )
 
     if "Please choose a new date:" in clean:
@@ -171,6 +191,7 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
                 {"id": "command_3", "title": "Next Weekday", "description": "Choose the next weekday"},
                 {"id": "command_4", "title": "Custom Date", "description": "Enter your own date"},
             ],
+            suppress_outbound=suppress_outbound,
         )
 
     if "Before I cancel" in clean:
@@ -184,6 +205,7 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
                 {"id": "command_2", "title": "Confirm Cancellation", "description": "Cancel this appointment"},
                 {"id": "command_3", "title": "Keep Appointment", "description": "Do not cancel"},
             ],
+            suppress_outbound=suppress_outbound,
         )
 
 
@@ -200,6 +222,7 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
                 {"id": "command_2", "title": "Change Time", "description": "Choose a different time"},
                 {"id": "command_3", "title": "Cancel Booking", "description": "Do not create this booking"},
             ],
+            suppress_outbound=suppress_outbound,
         )
 
 
@@ -217,6 +240,7 @@ def send_whatsapp_smart_response(to_phone: str, message: str):
                 body=body,
                 button_text="Select Time",
                 rows=rows,
+                suppress_outbound=suppress_outbound,
             )
 
-    return send_whatsapp_text(to_phone, message)
+    return send_whatsapp_text(to_phone, message, suppress_outbound=suppress_outbound)
