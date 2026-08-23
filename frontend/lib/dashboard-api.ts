@@ -10,6 +10,7 @@ import type {
   DashboardClient,
   ClientDetail,
   PromotionCampaign,
+  AnalyticsDashboard,
 } from "@/lib/dashboard-types";
 
 const API_BASE_URL = (
@@ -88,4 +89,9 @@ export function getPromotions(search = "", status = "") {
 
 export function getPromotion(campaignId: number) {
   return dashboardFetch<PromotionCampaign>(`/dashboard/promotions/${campaignId}`);
+}
+
+export function getAnalytics(period = "last_30_days") {
+  const query = new URLSearchParams({ period });
+  return dashboardFetch<AnalyticsDashboard>(`/dashboard/analytics?${query}`);
 }

@@ -239,3 +239,29 @@ export type AudiencePreview = {
   eligible_count: number; excluded_count: number; exclusion_reasons: Record<string, number>;
   preview_rows: Array<{ client_id: number; name: string | null; phone: string; consent_source: string | null }>;
 };
+
+export type AnalyticsService = {
+  service_id: number; service_name: string; active: boolean; appointment_count: number; completed_count: number;
+};
+export type AnalyticsStaff = {
+  staff_id: number | null; staff_name: string; active: boolean | null;
+  appointment_count: number; completed_count: number; upcoming_count: number;
+};
+export type AnalyticsCoupon = { coupon_id: number; code: string; redemption_count: number };
+export type AnalyticsDashboard = {
+  period: { key: string; label: string; start_date: string; end_date: string; start_at: string; end_at: string; timezone: string };
+  overview: {
+    total_appointments: number; confirmed_appointments: number; completed_appointments: number;
+    cancelled_appointments: number; cancellation_rate: number; new_clients: number; returning_clients: number;
+  };
+  services: { most_booked_service: AnalyticsService | null; rows: AnalyticsService[] };
+  staff: AnalyticsStaff[];
+  clients: { new_clients: number; returning_clients: number; unique_clients: number; repeat_clients: number };
+  promotions: {
+    campaigns_created: number; campaign_recipients: number; submitted: number; sent: number; delivered: number;
+    read: number; replied: number; failed: number; delivery_rate: number | null; read_rate: number | null; reply_rate: number | null;
+  };
+  coupons: { active_coupons: number; total_redemptions: number; most_redeemed_coupon: AnalyticsCoupon | null; rows: AnalyticsCoupon[] };
+  value: { completed_service_value: number; currency: string; definition: string };
+  definitions: Record<string, string>;
+};

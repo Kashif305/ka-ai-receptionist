@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 const navigation = [
   { href: "/", label: "Overview", icon: "⌂" },
   { href: "/appointments", label: "Appointments", icon: "◷" },
+  { href: "/analytics", label: "Analytics", icon: "▥" },
   { href: "/conversation-center", label: "Conversation Center", icon: "◌" },
   { href: "/clients", label: "Clients", icon: "♙" },
   { href: "/promotions", label: "Promotions", icon: "%" },

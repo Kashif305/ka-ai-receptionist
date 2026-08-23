@@ -10,6 +10,7 @@ from app.api.availability_slots import router as availability_slots_router
 from app.api.business_hours import router as business_hours_router
 from app.api.customers import router as customers_router
 from app.api.dashboard import router as dashboard_router
+from app.api.dashboard_analytics import router as dashboard_analytics_router
 from app.api.dashboard_conversations import router as dashboard_conversations_router
 from app.api.dashboard_services import router as dashboard_services_router
 from app.api.dashboard_clients import router as dashboard_clients_router
@@ -42,6 +43,7 @@ def on_startup() -> None:
 app.include_router(health_router)
 app.include_router(customers_router)
 app.include_router(dashboard_router)
+app.include_router(dashboard_analytics_router)
 app.include_router(dashboard_conversations_router)
 app.include_router(dashboard_services_router)
 app.include_router(dashboard_clients_router)
