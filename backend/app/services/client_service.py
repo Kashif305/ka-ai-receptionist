@@ -31,7 +31,9 @@ def meaningful_name(name: str | None) -> str | None:
 
 
 def _utc(value: datetime) -> datetime:
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def get_or_create_client(
@@ -85,7 +87,7 @@ def backfill_clients(db: Session) -> dict[str, int]:
             timestamps = [customer.created_at]
             timestamps += [a.created_at for a in customer.appointments if a.created_at]
             timestamps += [m.created_at for m in customer.messages if m.created_at]
-            activity = max((item for item in timestamps if item), default=None)
+            activity = max((_utc(item) for item in timestamps if item), default=None)
             _, was_created = get_or_create_client(db, customer.phone, customer.name, last_activity_at=activity)
             client = link_customer_records(db, customer, activity_at=activity)
             linked += len(customer.appointments) + int(

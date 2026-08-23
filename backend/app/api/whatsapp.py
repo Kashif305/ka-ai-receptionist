@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
@@ -12,9 +14,40 @@ from app.services.conversation_service import handle_customer_message
 from app.services.owner_summary_service import get_owner_summary_reply
 from app.services.whatsapp_service import send_whatsapp_smart_response
 from app.services.client_service import get_or_create_client, normalize_phone, touch_client
+from app.services.promotion_service import mark_recent_campaign_reply, update_delivery_status
 
 
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["whatsapp"])
+MARKETING_OPT_OUT_PHRASES = {"stop", "unsubscribe", "no offers", "stop offers"}
+
+
+def is_marketing_opt_out(message: str) -> bool:
+    return " ".join(message.casefold().split()) in MARKETING_OPT_OUT_PHRASES
+
+
+def _process_statuses(db: Session, statuses: list[dict]) -> int:
+    processed = 0
+    for item in statuses:
+        provider_id = item.get("id")
+        status = item.get("status")
+        if not provider_id or not status:
+            continue
+        try:
+            occurred_at = datetime.fromtimestamp(int(item.get("timestamp", 0)), tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            occurred_at = datetime.now(timezone.utc)
+        errors = item.get("errors") or []
+        error = errors[0] if errors else {}
+        if update_delivery_status(
+            db,
+            provider_id,
+            status,
+            occurred_at,
+            failure_code=str(error.get("code")) if error.get("code") is not None else None,
+            failure_message=error.get("title") or error.get("message"),
+        ):
+            processed += 1
+    return processed
 
 
 @router.get("")
@@ -74,6 +107,9 @@ async def receive_whatsapp_webhook(
         change = entry["changes"][0]
         value = change["value"]
 
+        if "statuses" in value:
+            return {"status": "processed", "updated": _process_statuses(db, value["statuses"])}
+
         if "messages" not in value:
             return {"status": "ignored"}
 
@@ -116,9 +152,19 @@ async def receive_whatsapp_webhook(
         state = db.query(ConversationState).filter(ConversationState.customer_id == customer.id).first()
         if state:
             state.client_id = client.id
+        mark_recent_campaign_reply(db, client.id)
         db.commit()
 
         print(f"WHATSAPP SAVED | customer={customer.name} | message={display_body or message_body}")
+
+        if is_marketing_opt_out(message_body):
+            client.marketing_opt_in = False
+            client.marketing_opt_out_at = datetime.now(timezone.utc)
+            confirmation = "You have been unsubscribed from promotional offers. You can still use this chat for appointments."
+            send_whatsapp_smart_response(phone, confirmation)
+            db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=confirmation))
+            db.commit()
+            return {"status": "marketing_opt_out_confirmed"}
 
         starter_words = {"hi", "hey", "hello", "start", "menu", "samina", "samina receptionist"}
 

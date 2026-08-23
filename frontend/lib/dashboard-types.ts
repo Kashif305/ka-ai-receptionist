@@ -214,3 +214,27 @@ export type ConversationMessage = {
   direction: "incoming" | "outgoing";
   delivery_status: string | null;
 };
+
+export type CampaignRecipient = {
+  id: number; client_id: number; phone: string; client_name: string | null;
+  consent_source: string | null; consent_at: string | null; status: string;
+  queued_at: string | null; sent_at: string | null; delivered_at: string | null;
+  read_at: string | null; replied_at: string | null; failed_at: string | null;
+  failure_code: string | null; failure_message: string | null;
+};
+export type PromotionCoupon = {
+  id: number; code: string; description: string | null; discount_type: "percentage" | "fixed_amount";
+  discount_value: number; service_id: number | null; starts_at: string | null; expires_at: string | null;
+  redemption_limit: number | null; redemption_count: number; is_active: boolean;
+};
+export type PromotionCampaign = {
+  id: number; name: string; status: string; message_template_name: string; message_template_language: string;
+  headline: string | null; body_text: string; footer_text: string | null; flyer_url: string | null;
+  audience_type: string; audience_config: Record<string, unknown> | null; scheduled_at: string | null;
+  started_at: string | null; completed_at: string | null; created_at: string; updated_at: string;
+  coupon: PromotionCoupon | null; recipient_counts: Record<string, number>; recipients?: CampaignRecipient[];
+};
+export type AudiencePreview = {
+  eligible_count: number; excluded_count: number; exclusion_reasons: Record<string, number>;
+  preview_rows: Array<{ client_id: number; name: string | null; phone: string; consent_source: string | null }>;
+};

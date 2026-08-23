@@ -5,6 +5,7 @@ from app.models.conversation_state import ConversationState
 from app.models.customer import Customer
 from app.models.client import Client
 from app.models.message import Message
+from app.models.promotion import CampaignRecipient, Coupon, CouponRedemption, PromotionCampaign
 from app.models.service import Service
 
 __all__ = [
@@ -16,6 +17,10 @@ __all__ = [
     "Customer",
     "Client",
     "Message",
+    "PromotionCampaign",
+    "CampaignRecipient",
+    "Coupon",
+    "CouponRedemption",
     "Service",
 ]
 

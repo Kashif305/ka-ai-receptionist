@@ -9,6 +9,7 @@ import type {
   DashboardConversation,
   DashboardClient,
   ClientDetail,
+  PromotionCampaign,
 } from "@/lib/dashboard-types";
 
 const API_BASE_URL = (
@@ -76,4 +77,15 @@ export function getDashboardClients(search = "", status = "all") {
 
 export function getDashboardClient(clientId: number) {
   return dashboardFetch<ClientDetail>(`/dashboard/clients/${clientId}`);
+}
+
+export function getPromotions(search = "", status = "") {
+  const query = new URLSearchParams();
+  if (search) query.set("search", search);
+  if (status) query.set("status", status);
+  return dashboardFetch<PromotionCampaign[]>(`/dashboard/promotions?${query}`);
+}
+
+export function getPromotion(campaignId: number) {
+  return dashboardFetch<PromotionCampaign>(`/dashboard/promotions/${campaignId}`);
 }

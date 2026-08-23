@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     business_name: str = "Samina Beauty Salon"
     business_address: str = ""
+    business_timezone: str = "America/New_York"
 
     database_url: str = "postgresql+psycopg://ka_user:ka_password@localhost:5432/ka_ai_receptionist"
 
@@ -15,6 +16,11 @@ class Settings(BaseSettings):
     whatsapp_waba_id: str | None = None
     whatsapp_access_token: str | None = None
     whatsapp_verify_token: str = "ka_ai_receptionist_verify"
+    whatsapp_request_timeout_seconds: float = 30.0
+
+    promotion_media_directory: str = "var/promotion_media"
+    promotion_media_url_prefix: str = "/media/promotions"
+    promotion_media_max_bytes: int = 5 * 1024 * 1024
 
     openai_api_key: str | None = None
     ai_intent_enabled: bool = False

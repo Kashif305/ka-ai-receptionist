@@ -72,6 +72,30 @@ class DashboardClientTests(unittest.TestCase):
         self.assertEqual(result["skipped"], 1)
         self.assertEqual(self.db.query(Client).count(), 1)
 
+    def test_backfill_handles_naive_and_aware_activity_timestamps(self):
+        customer = Customer(
+            name="Amina",
+            phone="5550001111",
+            created_at=datetime(2026, 1, 1, 12),
+        )
+        service = Service(name="Haircut", duration_minutes=30, active=True)
+        self.db.add_all([customer, service])
+        self.db.flush()
+        appointment = Appointment(
+            customer_id=customer.id,
+            service_id=service.id,
+            start_at=datetime(2026, 1, 2, 12, tzinfo=timezone.utc),
+            end_at=datetime(2026, 1, 2, 12, 30, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 2, 9, tzinfo=timezone(timedelta(hours=-5))),
+        )
+        self.db.add(appointment)
+
+        result = backfill_clients(self.db)
+
+        client = self.db.query(Client).one()
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(client.last_activity_at, datetime(2026, 1, 2, 14))
+
     def test_manual_create_notes_inactive_search_and_filters(self):
         result = create_client(self.payload(is_active=False), self.db)
         self.assertEqual(result["notes"], "VIP")

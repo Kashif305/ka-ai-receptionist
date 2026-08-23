@@ -6,6 +6,7 @@ const navigation = [
   { href: "/appointments", label: "Appointments", icon: "◷" },
   { href: "/conversation-center", label: "Conversation Center", icon: "◌" },
   { href: "/clients", label: "Clients", icon: "♙" },
+  { href: "/promotions", label: "Promotions", icon: "%" },
   { href: "/staff", label: "Staff", icon: "♢" },
   { href: "/services", label: "Services", icon: "✦" },
   { href: "/business-hours", label: "Business Hours", icon: "◴" },
