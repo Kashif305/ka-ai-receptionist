@@ -15,6 +15,16 @@ from app.services.owner_summary_service import get_owner_summary_reply
 from app.services.whatsapp_service import send_whatsapp_smart_response
 from app.services.client_service import get_or_create_client, normalize_phone, touch_client
 from app.services.promotion_service import mark_recent_campaign_reply, update_delivery_status
+from app.services.marketing_consent_service import (
+    CONSENT_PROMPT,
+    begin_consent_prompt,
+    clear_consent_wait,
+    consent_reply,
+    eligible_for_consent_prompt,
+    is_awaiting_consent,
+    is_natural_prompt_point,
+    record_consent_decision,
+)
 
 
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["whatsapp"])
@@ -140,6 +150,12 @@ async def receive_whatsapp_webhook(
         client, _ = get_or_create_client(db, phone, customer_name)
         touch_client(db, client)
 
+        if message.get("id") and db.query(Message).filter(
+            Message.external_message_id == message["id"]
+        ).first():
+            db.rollback()
+            return {"status": "duplicate_ignored"}
+
         new_message = Message(
             customer_id=customer.id,
             channel="whatsapp",
@@ -159,12 +175,36 @@ async def receive_whatsapp_webhook(
 
         if is_marketing_opt_out(message_body):
             client.marketing_opt_in = False
+            client.marketing_opt_in_at = None
             client.marketing_opt_out_at = datetime.now(timezone.utc)
+            client.marketing_opt_in_source = "whatsapp"
+            if is_awaiting_consent(state):
+                clear_consent_wait(state)
             confirmation = "You have been unsubscribed from promotional offers. You can still use this chat for appointments."
             send_whatsapp_smart_response(phone, confirmation)
             db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=confirmation))
             db.commit()
             return {"status": "marketing_opt_out_confirmed"}
+
+        if is_awaiting_consent(state):
+            decision = consent_reply(message_body)
+            if decision is not None:
+                record_consent_decision(client, decision)
+                clear_consent_wait(state)
+                confirmation = (
+                    "Thanks — you're signed up for occasional offers."
+                    if decision
+                    else "No problem — you won't receive promotional offers."
+                )
+                send_whatsapp_smart_response(phone, confirmation)
+                db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=confirmation))
+                db.commit()
+                return {"status": "marketing_consent_recorded", "marketing_opt_in": decision}
+
+            # A non-consent reply resumes normal transactional handling and is
+            # never coerced into a marketing decision.
+            clear_consent_wait(state)
+            db.commit()
 
         starter_words = {"hi", "hey", "hello", "start", "menu", "samina", "samina receptionist"}
 
@@ -204,6 +244,14 @@ async def receive_whatsapp_webhook(
             return {"status": "owner_summary_sent"}
 
         auto_reply = handle_customer_message(db, customer, routed_message)
+
+        state = db.query(ConversationState).filter(ConversationState.customer_id == customer.id).first()
+        if (
+            eligible_for_consent_prompt(client, state)
+            and is_natural_prompt_point(routed_message, auto_reply)
+        ):
+            begin_consent_prompt(client, state)
+            auto_reply = f"{auto_reply}\n\n{CONSENT_PROMPT}"
 
         send_whatsapp_smart_response(phone, auto_reply)
         db.add(Message(customer_id=customer.id, channel="whatsapp", direction="outbound", body=auto_reply))

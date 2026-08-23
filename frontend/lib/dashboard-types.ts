@@ -71,6 +71,7 @@ export type ClientConversation = { id: number; last_message: string | null; last
 export type ClientDetail = DashboardClient & {
   birthday: string | null; notes: string | null; created_at: string; updated_at: string;
   marketing_opt_in_at: string | null; marketing_opt_in_source: string | null; marketing_opt_out_at: string | null;
+  marketing_consent_asked_at: string | null; marketing_consent_status: "not_asked" | "opted_in" | "opted_out";
   upcoming_appointment: ClientAppointment | null; appointments: ClientAppointment[]; conversations: ClientConversation[];
 };
 export type ClientInput = {

@@ -75,6 +75,8 @@ class ClientDetail(BaseModel):
     marketing_opt_in_at: datetime | None
     marketing_opt_in_source: str | None
     marketing_opt_out_at: datetime | None
+    marketing_consent_asked_at: datetime | None
+    marketing_consent_status: Literal["not_asked", "opted_in", "opted_out"]
     created_at: datetime
     updated_at: datetime
     last_activity_at: datetime | None

@@ -12,6 +12,7 @@ from app.models.conversation_state import ConversationState
 from app.models.customer import Customer
 from app.schemas.client import ClientCreate, ClientDetail, ClientListItem, ClientUpdate
 from app.services.client_service import InvalidPhoneNumber, normalize_phone
+from app.services.marketing_consent_service import consent_status
 
 
 router = APIRouter(prefix="/dashboard/clients", tags=["dashboard", "clients"])
@@ -113,7 +114,8 @@ def client_detail(client_id: int, db: Session = Depends(get_db)):
         messages = sorted(state.customer.messages, key=lambda item: (item.created_at, item.id))
         conversations.append({"id": state.id, "last_message": messages[-1].body if messages else None, "last_activity_at": messages[-1].created_at if messages else state.updated_at, "message_count": len(messages)})
     return {
-        **{key: getattr(client, key) for key in ("id", "name", "phone", "email", "birthday", "notes", "is_active", "marketing_opt_in", "marketing_opt_in_at", "marketing_opt_in_source", "marketing_opt_out_at", "created_at", "updated_at", "last_activity_at")},
+        **{key: getattr(client, key) for key in ("id", "name", "phone", "email", "birthday", "notes", "is_active", "marketing_opt_in", "marketing_opt_in_at", "marketing_opt_in_source", "marketing_opt_out_at", "marketing_consent_asked_at", "created_at", "updated_at", "last_activity_at")},
+        "marketing_consent_status": consent_status(client),
         "total_appointment_count": len(appointments), "upcoming_appointment": _appointment(upcoming) if upcoming else None,
         "last_appointment": _appointment(appointments[0]) if appointments else None,
         "appointments": [_appointment(item) for item in appointments], "conversations": conversations,
