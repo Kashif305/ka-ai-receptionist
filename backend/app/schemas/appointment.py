@@ -101,3 +101,8 @@ class AppointmentAvailability(BaseModel):
     service_id: int
     service_duration_minutes: int
     slots: list[AppointmentSlot]
+
+
+class ServiceAvailability(AppointmentAvailability):
+    service_name: str
+    timezone: str

@@ -1,4 +1,4 @@
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.database import get_db
 from app.models.appointment import Appointment
 from app.models.service import Service
-from app.models.staff import Staff, StaffAvailability, StaffService
+from app.models.staff import Staff
 from app.schemas.appointment import (
     AppointmentAvailability,
     AppointmentCancel,
@@ -21,10 +21,10 @@ from app.services.staff_assignment_service import (
 )
 from app.services.business_hours_service import (
     BusinessHoursError,
-    is_business_open_for_interval,
-    list_effective_open_intervals,
     validate_interval_within_business_hours,
 )
+from app.services.availability_service import list_bookable_slots
+from app.api.scheduling_validation import validate_selected_staff
 
 
 router = APIRouter(prefix="/dashboard/appointments", tags=["dashboard-appointments"])
@@ -131,26 +131,6 @@ def complete_appointment(appointment_id: int, db: Session = Depends(get_db)):
     return _commit(db, appointment)
 
 
-def _validate_selected_staff(db: Session, staff_id: int, service_id: int) -> Staff:
-    staff = db.get(Staff, staff_id)
-    if staff is None:
-        raise HTTPException(status_code=404, detail="Staff member not found")
-    if not staff.active:
-        raise HTTPException(status_code=409, detail="Selected staff member is inactive")
-    offers_service = (
-        db.query(StaffService)
-        .filter(StaffService.staff_id == staff_id)
-        .filter(StaffService.service_id == service_id)
-        .first()
-    )
-    if offers_service is None:
-        raise HTTPException(
-            status_code=409,
-            detail="Selected staff member does not offer this service",
-        )
-    return staff
-
-
 @router.post("/{appointment_id}/reschedule", response_model=AppointmentDetail)
 def reschedule_appointment(
     appointment_id: int,
@@ -164,7 +144,7 @@ def reschedule_appointment(
         raise HTTPException(status_code=422, detail="New appointment time must be in the future")
 
     if payload.staff_id is not None:
-        _validate_selected_staff(db, payload.staff_id, appointment.service_id)
+        validate_selected_staff(db, payload.staff_id, appointment.service_id)
 
     try:
         validate_interval_within_business_hours(
@@ -237,67 +217,29 @@ def appointment_availability(
     if service is None:
         raise HTTPException(status_code=404, detail="Service not found")
     if staff_id is not None:
-        _validate_selected_staff(db, staff_id, service.id)
+        validate_selected_staff(db, staff_id, service.id)
 
-    business_intervals = list_effective_open_intervals(db, selected_date)
-    if not business_intervals:
-        return {
-            "date": selected_date,
-            "service_id": service.id,
-            "service_duration_minutes": service.duration_minutes,
-            "slots": [],
-        }
-
-    windows_query = (
-        db.query(StaffAvailability)
-        .join(Staff, Staff.id == StaffAvailability.staff_id)
-        .join(StaffService, StaffService.staff_id == StaffAvailability.staff_id)
-        .filter(StaffAvailability.weekday == selected_date.weekday())
-        .filter(StaffAvailability.active.is_(True))
-        .filter(Staff.active.is_(True))
-        .filter(StaffService.service_id == service.id)
+    slots = list_bookable_slots(
+        db,
+        service,
+        selected_date,
+        staff_id=staff_id,
+        exclude_appointment_id=appointment.id,
     )
-    if staff_id is not None:
-        windows_query = windows_query.filter(StaffAvailability.staff_id == staff_id)
-    windows = windows_query.order_by(StaffAvailability.start_time.asc()).all()
-
-    starts: set[datetime] = set()
-    duration = service_duration(service)
-    for window in windows:
-        cursor = datetime.combine(selected_date, window.start_time, BUSINESS_TIMEZONE)
-        window_end = datetime.combine(selected_date, window.end_time, BUSINESS_TIMEZONE)
-        while cursor + duration <= window_end:
-            if (
-                cursor.astimezone(timezone.utc) > datetime.now(timezone.utc)
-                and is_business_open_for_interval(db, cursor, cursor + duration)
-            ):
-                starts.add(cursor)
-            cursor += timedelta(minutes=window.slot_duration_minutes)
-
-    slots = []
-    for start_at in sorted(starts):
-        available = get_available_staff_for_service(
-            db,
-            service,
-            start_at,
-            exclude_appointment_id=appointment.id,
-        )
-        if staff_id is not None:
-            available = [staff for staff in available if staff.id == staff_id]
-        if available:
-            slots.append(
-                {
-                    "start_at": start_at,
-                    "end_at": start_at + duration,
-                    "available_staff": [
-                        {"id": staff.id, "name": staff.name} for staff in available
-                    ],
-                }
-            )
 
     return {
         "date": selected_date,
         "service_id": service.id,
         "service_duration_minutes": service.duration_minutes,
-        "slots": slots,
+        "slots": [
+            {
+                "start_at": slot.start_at,
+                "end_at": slot.end_at,
+                "available_staff": [
+                    {"id": staff.id, "name": staff.name}
+                    for staff in slot.available_staff
+                ],
+            }
+            for slot in slots
+        ],
     }
