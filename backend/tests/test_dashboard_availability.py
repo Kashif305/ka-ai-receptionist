@@ -1,5 +1,5 @@
 import unittest
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app import models  # noqa: F401
-from app.api.appointment_management import appointment_availability
+from app.api.appointment_management import appointment_availability, reschedule_appointment
 from app.api.dashboard_availability import service_availability
 from app.core.database import Base
 from app.models.appointment import Appointment
@@ -17,6 +17,7 @@ from app.models.business_hours import BusinessClosure, BusinessHour
 from app.models.customer import Customer
 from app.models.service import Service
 from app.models.staff import Staff, StaffAvailability, StaffService
+from app.schemas.appointment import AppointmentReschedule
 
 
 BUSINESS_TZ = ZoneInfo("America/New_York")
@@ -215,6 +216,35 @@ class DashboardAvailabilityTests(unittest.TestCase):
             self.db,
         )
         self.assertEqual(reschedule["slots"], general)
+
+    def test_dashboard_slot_contract_reschedules_and_persists_staff(self):
+        customer = Customer(name="Owner QA", phone="15550000002")
+        self.db.add(customer)
+        self.db.flush()
+        old_start = datetime.combine(self.selected_date + timedelta(days=1), time(10), BUSINESS_TZ)
+        appointment = Appointment(customer_id=customer.id, service_id=self.services["Facial"].id, assigned_staff_id=self.staff.id, start_at=old_start, end_at=old_start + timedelta(hours=1), status="confirmed")
+        self.db.add(appointment)
+        self.db.commit()
+        slot = self.get()["slots"][0]
+        result = reschedule_appointment(appointment.id, AppointmentReschedule(start_at=slot["start_at"], staff_id=slot["available_staff"][0]["id"], note="QA"), self.db)
+        self.assertEqual(result.start_at.astimezone(BUSINESS_TZ), slot["start_at"])
+        self.assertEqual(result.assigned_staff_id, self.staff.id)
+        persisted = self.db.get(Appointment, appointment.id)
+        persisted_start = persisted.start_at.replace(tzinfo=timezone.utc) if persisted.start_at.tzinfo is None else persisted.start_at
+        self.assertEqual(persisted_start.astimezone(BUSINESS_TZ), slot["start_at"])
+
+    def test_reschedule_rejects_noneligible_or_conflicting_staff(self):
+        customer = Customer(name="Owner QA", phone="15550000003")
+        other = self.add_staff("Other", [self.services["Haircut"]])
+        self.db.add(customer)
+        self.db.flush()
+        old_start = datetime.combine(self.selected_date + timedelta(days=1), time(10), BUSINESS_TZ)
+        appointment = Appointment(customer_id=customer.id, service_id=self.services["Facial"].id, assigned_staff_id=self.staff.id, start_at=old_start, end_at=old_start + timedelta(hours=1), status="confirmed")
+        self.db.add(appointment)
+        self.db.commit()
+        with self.assertRaises(HTTPException) as error:
+            reschedule_appointment(appointment.id, AppointmentReschedule(start_at=self.get()["slots"][0]["start_at"], staff_id=other.id), self.db)
+        self.assertEqual(error.exception.status_code, 409)
 
 
 if __name__ == "__main__":

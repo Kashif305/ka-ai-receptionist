@@ -1,5 +1,6 @@
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+import re
 
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -48,6 +49,16 @@ def validate_coupon(coupon: Coupon, *, now: datetime | None = None, for_redempti
             raise PromotionError("Coupon redemption limit has been reached")
 
 
+def configured_templates() -> dict[str, set[str]]:
+    from app.core.config import settings
+    configured: dict[str, set[str]] = {}
+    for item in settings.whatsapp_campaign_templates.split(","):
+        name, separator, language = item.strip().partition(":")
+        if separator and name and language:
+            configured.setdefault(name, set()).add(language)
+    return configured
+
+
 def validate_campaign(campaign: PromotionCampaign) -> None:
     if campaign.status in TERMINAL_STATUSES:
         raise PromotionError(f"Campaign cannot be sent while {campaign.status}")
@@ -55,8 +66,22 @@ def validate_campaign(campaign: PromotionCampaign) -> None:
         raise PromotionError("WhatsApp template name is required")
     if not campaign.message_template_language.strip():
         raise PromotionError("WhatsApp template language is required")
+    if not re.fullmatch(r"[a-z0-9_]+", campaign.message_template_name):
+        raise PromotionError("WhatsApp template name must be the exact Meta API name (lowercase letters, numbers, and underscores only)")
+    if not re.fullmatch(r"[a-z]{2,3}(?:_[A-Z]{2})?", campaign.message_template_language):
+        raise PromotionError("WhatsApp template language must be a valid code such as en_US")
+    known = configured_templates()
+    if known and campaign.message_template_language not in known.get(campaign.message_template_name, set()):
+        raise PromotionError("WhatsApp template name and language are not an approved configured pair")
     if campaign.coupon:
         validate_coupon(campaign.coupon)
+        current = datetime.now(timezone.utc)
+        if not campaign.coupon.is_active:
+            raise PromotionError("Coupon is inactive")
+        if campaign.coupon.starts_at and current < utc(campaign.coupon.starts_at):
+            raise PromotionError("Coupon is not active yet")
+        if campaign.coupon.expires_at and current > utc(campaign.coupon.expires_at):
+            raise PromotionError("Coupon is expired")
 
 
 def preview_campaign(db: Session, campaign: PromotionCampaign) -> AudienceResolution:

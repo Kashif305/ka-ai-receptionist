@@ -4,6 +4,7 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from pydantic import ValidationError
 from fastapi import HTTPException
@@ -18,6 +19,7 @@ from app.api.whatsapp import is_marketing_opt_out, receive_whatsapp_webhook
 from app.core.config import settings
 from app.core.database import Base
 from app.integrations.whatsapp_cloud import CampaignSendResult
+from app.integrations.whatsapp_cloud import WhatsAppCampaignProvider
 from app.models.appointment import Appointment
 from app.models.client import Client
 from app.models.promotion import CampaignRecipient, Coupon, PromotionCampaign
@@ -103,6 +105,39 @@ class PromotionTests(unittest.TestCase):
         campaign.message_template_name = ""
         with self.assertRaisesRegex(PromotionError, "template name"):
             validate_campaign(campaign)
+
+    def test_template_exact_api_name_language_and_provider_failure_are_preserved(self):
+        recipient = Mock(phone_snapshot="15550000000", client_name_snapshot="Ayesha")
+        campaign = self.campaign(name="Kids back to school", message_template_name="kids_back_to_school", message_template_language="en_US")
+        response = Mock(status_code=400, content=b"error")
+        response.json.return_value = {"error": {"code": 132001, "message": "Template name does not exist in the translation"}}
+        with patch.object(settings, "whatsapp_phone_number_id", "phone-id"), patch.object(settings, "whatsapp_access_token", "secret"), patch("app.integrations.whatsapp_cloud.requests.post", return_value=response) as post:
+            result = WhatsAppCampaignProvider().send_campaign_template(recipient, campaign)
+        payload = post.call_args.kwargs["json"]
+        self.assertEqual(payload["template"]["name"], "kids_back_to_school")
+        self.assertEqual(payload["template"]["language"]["code"], "en_US")
+        self.assertNotEqual(payload["template"]["name"], campaign.name)
+        self.assertEqual((result.accepted, result.error_code, result.error_message), (False, "132001", "Template name does not exist in the translation"))
+
+    def test_invalid_template_configuration_fails_before_provider(self):
+        self.client("5550001009")
+        provider = FakeProvider()
+        campaign = self.campaign(message_template_name="Kids back to school")
+        with self.assertRaisesRegex(PromotionError, "exact Meta API name"):
+            send_campaign(self.db, campaign, provider)
+        self.assertEqual(provider.calls, [])
+
+    def test_meta_132001_is_visible_and_never_counted_as_delivery(self):
+        self.client("5550001010")
+        class MissingTemplateProvider:
+            def send_campaign_template(self, recipient, campaign, coupon=None):
+                return CampaignSendResult(False, error_code="132001", error_message="Template name does not exist in the translation")
+        campaign = self.campaign()
+        result = send_campaign(self.db, campaign, MissingTemplateProvider())
+        recipient = self.db.query(CampaignRecipient).one()
+        self.assertEqual((result["submitted"], result["failed"], campaign.status), (0, 1, "failed"))
+        self.assertEqual((recipient.status, recipient.failure_code, recipient.failure_message), ("failed", "132001", "Template name does not exist in the translation"))
+        self.assertIsNone(recipient.delivered_at)
 
     def test_update_cancellation_deletion_and_schedule_restrictions(self):
         campaign = self.campaign()
@@ -311,6 +346,19 @@ class PromotionTests(unittest.TestCase):
         self.db.commit()
         with self.assertRaisesRegex(PromotionError, "expired"):
             redeem_coupon(self.db, coupon)
+
+    def test_coupon_immediate_future_expiration_and_new_york_input_semantics(self):
+        immediate = Coupon(code="NOW", discount_type="percentage", discount_value=20, is_active=True)
+        validate_campaign(self.campaign(coupon=immediate))
+        local = CouponInput(code="LOCAL", discount_type="percentage", discount_value=20, starts_at=datetime(2026, 8, 23, 9), expires_at=datetime(2026, 8, 26, 23, 59))
+        self.assertEqual(local.starts_at, datetime(2026, 8, 23, 13, tzinfo=timezone.utc))
+        self.assertEqual(local.expires_at, datetime(2026, 8, 27, 3, 59, tzinfo=timezone.utc))
+        future = Coupon(code="FUTURE", discount_type="percentage", discount_value=20, is_active=True, starts_at=datetime.now(timezone.utc) + timedelta(hours=1))
+        with self.assertRaisesRegex(PromotionError, "not active yet"):
+            validate_campaign(self.campaign(coupon=future))
+        expired = Coupon(code="EXPIRED", discount_type="percentage", discount_value=20, is_active=True, expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+        with self.assertRaisesRegex(PromotionError, "expired"):
+            validate_campaign(self.campaign(coupon=expired))
 
     def test_media_validation_sanitizes_and_rejects_bad_content(self):
         with tempfile.TemporaryDirectory() as directory:

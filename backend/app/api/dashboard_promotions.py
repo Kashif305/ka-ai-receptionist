@@ -74,6 +74,7 @@ def _campaign_data(campaign: PromotionCampaign, *, include_recipients: bool = Fa
         "name": campaign.name,
         "status": campaign.status,
         "message_template_name": campaign.message_template_name,
+        "message_template_display_name": campaign.message_template_name.replace("_", " ").title(),
         "message_template_language": campaign.message_template_language,
         "headline": campaign.headline,
         "body_text": campaign.body_text,

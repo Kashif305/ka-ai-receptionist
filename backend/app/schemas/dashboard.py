@@ -12,6 +12,8 @@ class DashboardSummary(BaseModel):
 
 class DashboardAppointment(BaseModel):
     id: int
+    service_id: int
+    assigned_staff_id: int | None
     customer_name: str
     customer_phone: str
     service_name: str

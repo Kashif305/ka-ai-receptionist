@@ -1,6 +1,8 @@
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -34,6 +36,15 @@ class CouponInput(BaseModel):
             raise ValueError("Coupon code may contain only letters, numbers, hyphens, and underscores")
         return normalized
 
+    @field_validator("starts_at", "expires_at")
+    @classmethod
+    def business_datetime(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            value = value.replace(tzinfo=ZoneInfo("America/New_York"))
+        return value.astimezone(timezone.utc)
+
     @model_validator(mode="after")
     def validate_offer(self):
         if self.discount_value <= 0:
@@ -59,6 +70,22 @@ class CampaignCreate(BaseModel):
     audience_config: dict[str, Any] | None = None
     flyer_url: str | None = Field(default=None, max_length=500)
     coupon: CouponInput | None = None
+
+    @field_validator("message_template_name")
+    @classmethod
+    def template_api_name(cls, value: str) -> str:
+        value = value.strip()
+        if value and not re.fullmatch(r"[a-z0-9_]+", value):
+            raise ValueError("Meta template API name may contain only lowercase letters, numbers, and underscores")
+        return value
+
+    @field_validator("message_template_language")
+    @classmethod
+    def template_language_code(cls, value: str) -> str:
+        value = value.strip()
+        if value and not re.fullmatch(r"[a-z]{2,3}(?:_[A-Z]{2})?", value):
+            raise ValueError("Meta template language must be a code such as en_US")
+        return value
 
 
 class CampaignUpdate(BaseModel):

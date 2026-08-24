@@ -22,6 +22,14 @@ network calls are not made inside the claim transaction.
 The named marketing template and language must already be approved in WhatsApp
 Manager. Body variables are supplied in this order:
 
+The campaign name is only a dashboard display label. `message_template_name`
+is the exact lowercase/underscore API name approved by Meta, and
+`message_template_language` is its exact language code (for example `en_US`).
+For a strict deployment allow-list, set `WHATSAPP_CAMPAIGN_TEMPLATES` to
+comma-separated `api_name:language` pairs, such as
+`kids_back_to_school:en_US,summer_offer:en_US`. No access token belongs in this
+setting or in source control.
+
 1. client name
 2. campaign headline
 3. offer text

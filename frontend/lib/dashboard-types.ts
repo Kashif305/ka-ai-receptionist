@@ -7,6 +7,8 @@ export type DashboardSummary = {
 
 export type DashboardAppointment = {
   id: number;
+  service_id: number;
+  assigned_staff_id: number | null;
   customer_name: string;
   customer_phone: string;
   service_name: string;
@@ -229,7 +231,7 @@ export type PromotionCoupon = {
   redemption_limit: number | null; redemption_count: number; is_active: boolean;
 };
 export type PromotionCampaign = {
-  id: number; name: string; status: string; message_template_name: string; message_template_language: string;
+  id: number; name: string; status: string; message_template_name: string; message_template_display_name: string; message_template_language: string;
   headline: string | null; body_text: string; footer_text: string | null; flyer_url: string | null;
   audience_type: string; audience_config: Record<string, unknown> | null; scheduled_at: string | null;
   started_at: string | null; completed_at: string | null; created_at: string; updated_at: string;

@@ -55,6 +55,8 @@ def _get_appointment(
 
 
 def _serialize(appointment: Appointment) -> AppointmentDetail:
+    def aware(value: datetime) -> datetime:
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
     return AppointmentDetail(
         id=appointment.id,
         customer_id=appointment.customer_id,
@@ -68,12 +70,12 @@ def _serialize(appointment: Appointment) -> AppointmentDetail:
         assigned_staff_name=(
             appointment.assigned_staff.name if appointment.assigned_staff else None
         ),
-        start_at=appointment.start_at,
-        end_at=appointment.end_at,
+        start_at=aware(appointment.start_at),
+        end_at=aware(appointment.end_at),
         status=appointment.status,
         source=appointment.source,
         notes=appointment.notes,
-        created_at=appointment.created_at,
+        created_at=aware(appointment.created_at),
     )
 
 

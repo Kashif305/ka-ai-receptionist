@@ -52,10 +52,10 @@ export async function getAppointmentDetails(appointmentId: number) {
   return request<AppointmentDetail>(`/dashboard/appointments/${appointmentId}`);
 }
 
-export async function getRescheduleAvailability(appointmentId: number, date: string) {
-  const query = new URLSearchParams({ date });
+export async function getRescheduleAvailability(serviceId: number, date: string) {
+  const query = new URLSearchParams({ service_id: String(serviceId), date });
   return request<AppointmentAvailability>(
-    `/dashboard/appointments/${appointmentId}/availability?${query}`,
+    `/dashboard/availability?${query}`,
   );
 }
 

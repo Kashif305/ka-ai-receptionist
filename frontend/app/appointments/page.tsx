@@ -1,9 +1,14 @@
 import { AppointmentsManager } from "@/components/appointments-manager";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { getDashboardAppointments } from "@/lib/dashboard-api";
+import { getDashboardAppointments, getDashboardStaff, getServices } from "@/lib/dashboard-api";
 
-export default async function AppointmentsPage() {
-  const appointments = await getDashboardAppointments();
+export default async function AppointmentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const raw = await searchParams;
+  const value = (key: string) => typeof raw[key] === "string" ? raw[key] : "";
+  const filters = { search: value("search"), date: value("date"), service_id: value("service_id"), staff_id: value("staff_id"), time_of_day: value("time_of_day") };
+  const [appointments, services, staff] = await Promise.all([
+    getDashboardAppointments(filters), getServices(), getDashboardStaff(),
+  ]);
 
   return (
     <DashboardShell
@@ -17,7 +22,7 @@ export default async function AppointmentsPage() {
             Complete appointment records from Samina Receptionist.
           </p>
         </div>
-        <AppointmentsManager appointments={appointments} />
+        <AppointmentsManager appointments={appointments} services={services} staff={staff} filters={filters} />
       </section>
     </DashboardShell>
   );

@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     whatsapp_access_token: str | None = None
     whatsapp_verify_token: str = "ka_ai_receptionist_verify"
     whatsapp_request_timeout_seconds: float = 30.0
+    # Comma-separated approved API-name:language pairs, for example
+    # "kids_back_to_school:en_US,summer_offer:en_US". Empty keeps strict syntax
+    # validation while allowing manual V1 configuration.
+    whatsapp_campaign_templates: str = ""
     ka_qa_outbound_suppression_enabled: bool = False
 
     promotion_media_directory: str = "var/promotion_media"

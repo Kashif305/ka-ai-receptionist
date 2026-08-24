@@ -16,6 +16,8 @@ import type {
   AppointmentDetail,
   AppointmentSlot,
   DashboardAppointment,
+  DashboardStaff,
+  ServiceOption,
 } from "@/lib/dashboard-types";
 import { formatDate, formatDateTime, formatLabel, formatTime } from "@/lib/formatters";
 
@@ -33,7 +35,9 @@ function newYorkDate(value: string) {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-export function AppointmentsManager({ appointments }: { appointments: DashboardAppointment[] }) {
+type Filters = { search: string; date: string; service_id: string; staff_id: string; time_of_day: string };
+
+export function AppointmentsManager({ appointments, services, staff, filters }: { appointments: DashboardAppointment[]; services: ServiceOption[]; staff: DashboardStaff[]; filters: Filters }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [flow, setFlow] = useState<Flow | null>(null);
@@ -49,12 +53,21 @@ export function AppointmentsManager({ appointments }: { appointments: DashboardA
   const [loading, setLoading] = useState(false);
   const availabilityRequest = useRef(0);
 
-  async function loadAvailability(appointmentId: number, selectedDate: string) {
+  function applyFilters(formData: FormData) {
+    const query = new URLSearchParams();
+    for (const key of ["search", "date", "service_id", "staff_id", "time_of_day"]) {
+      const value = String(formData.get(key) ?? "").trim();
+      if (value) query.set(key, value);
+    }
+    router.replace(query.size ? `/appointments?${query}` : "/appointments");
+  }
+
+  async function loadAvailability(serviceId: number, selectedDate: string) {
     const requestId = ++availabilityRequest.current;
     setLoading(true);
     setError("");
     setSelectedStart("");
-    const result = await getRescheduleAvailability(appointmentId, selectedDate);
+    const result = await getRescheduleAvailability(serviceId, selectedDate);
     if (requestId !== availabilityRequest.current) return;
     setLoading(false);
     if (!result.ok) {
@@ -94,7 +107,7 @@ export function AppointmentsManager({ appointments }: { appointments: DashboardA
       setDetails(result.data);
       setStaffId(result.data.assigned_staff_id);
       if (action === "reschedule") {
-        await loadAvailability(appointment.id, newYorkDate(appointment.start_at));
+        await loadAvailability(result.data.service_id, newYorkDate(appointment.start_at));
       }
     });
   }
@@ -136,7 +149,15 @@ export function AppointmentsManager({ appointments }: { appointments: DashboardA
           {error || success}
         </div>
       )}
-      <AppointmentsTable appointments={appointments} onAction={open} />
+      <form action={applyFilters} className="grid gap-3 border-b border-slate-200 p-5 sm:grid-cols-2 lg:grid-cols-6">
+        <label className="text-sm font-medium lg:col-span-2">Customer name<input name="search" defaultValue={filters.search} placeholder="Search customer" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
+        <label className="text-sm font-medium">Date<input name="date" type="date" defaultValue={filters.date} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
+        <label className="text-sm font-medium">Service<select name="service_id" defaultValue={filters.service_id} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"><option value="">All services</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
+        <label className="text-sm font-medium">Staff<select name="staff_id" defaultValue={filters.staff_id} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"><option value="">All staff</option>{staff.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+        <label className="text-sm font-medium">Time<select name="time_of_day" defaultValue={filters.time_of_day} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"><option value="">Any time</option><option value="morning">Morning (5–12)</option><option value="afternoon">Afternoon (12–5)</option><option value="evening">Evening (5 onward)</option></select></label>
+        <div className="flex gap-2 sm:col-span-2 lg:col-span-6"><button className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white">Apply Filters</button><button type="button" onClick={() => router.replace("/appointments")} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">Clear Filters</button></div>
+      </form>
+      <AppointmentsTable appointments={appointments} onAction={open} emptyDescription="No appointments match these filters." />
 
       {flow && selected && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 p-4" role="presentation" onKeyDown={(event) => { if (event.key === "Escape" && !isPending) close(); }} onMouseDown={(event) => { if (event.target === event.currentTarget && !isPending) close(); }}>
@@ -166,7 +187,7 @@ export function AppointmentsManager({ appointments }: { appointments: DashboardA
                 ) : details && flow === "reschedule" ? (
                   <div className="space-y-5">
                     <p className="rounded-lg bg-slate-50 p-3 text-sm"><span className="text-slate-500">Current appointment:</span> <strong>{formatDateTime(details.start_at)}</strong> with {details.assigned_staff_name ?? "unassigned staff"}</p>
-                    <label className="block text-sm font-medium">New date<input type="date" required value={date} min={newYorkDate(new Date().toISOString())} onChange={(event) => { const nextDate = event.target.value; setDate(nextDate); if (nextDate) void loadAvailability(selected.id, nextDate); }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
+                    <label className="block text-sm font-medium">New date<input type="date" required value={date} min={newYorkDate(new Date().toISOString())} onChange={(event) => { const nextDate = event.target.value; setDate(nextDate); if (nextDate) void loadAvailability(details.service_id, nextDate); }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
                     <fieldset><legend className="text-sm font-medium">Available time</legend>{loading ? <p className="mt-2 text-sm text-slate-500">Loading valid slots…</p> : slots.length === 0 ? <p className="mt-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-500">No valid slots are available for this date.</p> : <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">{slots.map((slot) => <label key={slot.start_at} className={`cursor-pointer rounded-lg border p-2 text-center text-sm ${selectedStart === slot.start_at ? "border-slate-950 bg-slate-950 text-white" : "border-slate-300"}`}><input className="sr-only" type="radio" name="slot" value={slot.start_at} checked={selectedStart === slot.start_at} onChange={() => { setSelectedStart(slot.start_at); setStaffId(slot.available_staff.find((staff) => staff.id === details.assigned_staff_id)?.id ?? slot.available_staff[0].id); }} />{formatTime(slot.start_at)}</label>)}</div>}</fieldset>
                     {chosenSlot && <label className="block text-sm font-medium">Staff<select required value={staffId ?? ""} onChange={(event) => setStaffId(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2">{chosenSlot.available_staff.map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}</select></label>}
                     <label className="block text-sm font-medium">Owner note <span className="font-normal text-slate-500">(optional)</span><textarea maxLength={1000} rows={3} value={note} onChange={(event) => setNote(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>

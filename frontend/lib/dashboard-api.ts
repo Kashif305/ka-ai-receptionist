@@ -38,8 +38,13 @@ export function getDashboardSummary() {
   return dashboardFetch<DashboardSummary>("/dashboard/summary");
 }
 
-export function getDashboardAppointments() {
-  return dashboardFetch<DashboardAppointment[]>("/dashboard/appointments");
+export type AppointmentFilters = { search?: string; date?: string; service_id?: string; staff_id?: string; time_of_day?: string };
+
+export function getDashboardAppointments(filters: AppointmentFilters = {}) {
+  const query = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value) query.set(key, value); });
+  const suffix = query.size ? `?${query}` : "";
+  return dashboardFetch<DashboardAppointment[]>(`/dashboard/appointments${suffix}`);
 }
 
 export function getDashboardCustomers() {
